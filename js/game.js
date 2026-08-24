@@ -21,6 +21,9 @@ export default class Game {
         this.onSharkEat    = config.onSharkEat    || null;
         this.onAbility     = config.onAbility     || null;
         this.infinity      = !!config.infinity;
+        // Лимит ходов (режим «Челлендж» ⏱️): 0 = без лимита,
+        // иначе после moveLimit-го хода партия заканчивается (onGameOver).
+        this.moveLimit     = Math.max(0, Number(config.moveLimit) || 0);
 
         // Прилив 🌊 — конфиг механики «Глубины ядра» (null = выключено)
         this.tide          = this._normalizeTide(config.tide);
@@ -258,6 +261,11 @@ export default class Game {
                 } else {
                     setTimeout(() => this.onWin(this.score), 350);
                 }
+            } else if (this.moveLimit > 0 && this.movesCount >= this.moveLimit) {
+                // Режим «Челлендж» ⏱️: лимит ходов исчерпан — цель не собрана, партия окончена.
+                // Проверяется после выигрыша (победа в последний ход приоритетнее), до тупика.
+                this.gameOver = true;
+                setTimeout(() => this.onGameOver(this.score), 350);
             } else if (!this.won && this._checkGameOver()) {
                 this.gameOver = true;
                 setTimeout(() => this.onGameOver(this.score), 350);

@@ -160,6 +160,17 @@
                 <span class="shark-count" id="shark-count">–</span>
             </div>
 
+            <!-- Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель».
+                 Показывает цель и сколько ходов осталось из лимита. Появляется только
+                 когда игрок запустил челлендж с карты уровней. -->
+            <div id="challenge-indicator" class="challenge-indicator" hidden>
+                <span class="challenge-emoji" aria-hidden="true">⏱️</span>
+                <span class="challenge-label">Челлендж</span>
+                <span class="challenge-target-wrap">Цель: <strong id="challenge-target">256</strong></span>
+                <span class="challenge-bar" aria-hidden="true"><span class="challenge-bar-fill" id="challenge-bar-fill"></span></span>
+                <span class="challenge-count" id="challenge-count">–</span>
+            </div>
+
             <div id="board" class="board size-4"></div>
 
             <!-- D-pad — видим только на тач-устройствах -->
@@ -233,6 +244,17 @@
                     <span class="dp-stat dp-done" id="dp-done" hidden>✓ Пройдено</span>
                 </div>
                 <button class="btn btn-primary" id="dp-play-btn">🌊 Играть</button>
+            </div>
+
+            <!-- Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель».
+                 Для каждого уровня — цель и лимит ходов, награда за прохождение. -->
+            <div class="challenge-block" id="challenge-block">
+                <div class="ch-head">
+                    <span class="ch-title">⏱️ Челлендж: собери за N ходов</span>
+                    <span class="ch-badge" id="ch-badge" hidden></span>
+                </div>
+                <div class="ch-desc" id="ch-desc"></div>
+                <div class="ch-grid" id="ch-grid"></div>
             </div>
 
             <!-- Карта глубин: визуальный выбор уровня вместо простого списка -->

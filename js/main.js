@@ -14,6 +14,10 @@ import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, ma
 import { DEPTH_NODES, depthRewardFor, depthStatus, canClaimDepthReward, claimDepthReward, pendingDepthRewards } from './depths-map.js';
 import { missionForLevel, missionProgress, isMissionComplete, isMissionClaimed, claimMissionReward } from './missions.js';
 import { DAILY_TASKS, ensureDaily as ensureDailyState, dailyMetric as dailyMetricState, checkDaily as checkDailyState } from './daily.js';
+import {
+    CHALLENGES, challengeForLevel, ensureChallenges, recordChallengeResult, claimChallengeReward,
+    challengeInfo, pendingChallengeRewards,
+} from './challenge.js';
 import { claimDailyLogin, dailyLoginInfo } from './daily-login.js';
 import {
     getShopItem, itemsByType, ownsItem, buyItem, useBoost, boostCount, ownsPerk,
@@ -64,6 +68,8 @@ function loadState() {
         // Ежедневные задания
         daily: { date: '', tasks: [], claimed: {} },
         dailyCounters: { moves: 0, merges: 0, wins: 0, hints: 0, undos: 0 },
+        // Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель» — результаты по уровням
+        challenges: {},
         // Реклама: кулдаун interstitial
         lastAdTime: 0,
         // Фаза 2: одноразовые соц-бонусы за добавление в избранное / на главный экран
@@ -126,6 +132,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sharkIndicator = $('shark-indicator');
     const sharkBarFill   = $('shark-bar-fill');
     const sharkCount     = $('shark-count');
+
+    // Режим «Челлендж» ⏱️ (Фаза 3) — «N ходов на цель»: индикатор над доской
+    const challengeIndicator = $('challenge-indicator');
+    const challengeTargetEl  = $('challenge-target');
+    const challengeBarFill   = $('challenge-bar-fill');
+    const challengeCount     = $('challenge-count');
+    // Блок «Челлендж» на карте уровней
+    const chBlock  = $('challenge-block');
+    const chGrid   = $('ch-grid');
+    const chDesc   = $('ch-desc');
+    const chBadge  = $('ch-badge');
 
     const gameModal      = $('game-modal');
     const modalIcon      = $('modal-icon');
@@ -304,9 +321,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dpadRight = $('dpad-right');
 
     let state = loadState();
+    ensureChallenges(state); // Режим «Челлендж» ⏱️: гарантируем записи по уровням
     let game  = null;
     let lastScore = 0;
     let cloudSaveTimer = null;
+    // Режим «Челлендж» ⏱️: активна ли сейчас партия с лимитом ходов
+    let challengeActive = false;
     // «Спасение» после game over: счётчик использований в текущей партии,
     // защита от двойного нажатия и отложенный interstitial (отменяется при спасении)
     let reviveCount = 0;
@@ -668,6 +688,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         sharkIndicator.classList.remove('sweep');
         void sharkIndicator.offsetWidth;
         sharkIndicator.classList.add('sweep');
+    }
+
+    /** Обновить индикатор «Челлендж» ⏱️: цель и сколько ходов осталось из лимита. */
+    function updateChallengeIndicator() {
+        if (!challengeIndicator) return;
+        const ch = challengeActive ? challengeForLevel(state.currentLevel) : null;
+        if (!ch) {
+            challengeIndicator.hidden = true;
+            return;
+        }
+        challengeIndicator.hidden = false;
+        if (challengeTargetEl) challengeTargetEl.textContent = ch.target.toLocaleString('ru');
+        const used = game ? game.getMoves() : 0;
+        const left = Math.max(0, ch.movesLimit - used);
+        const ratio = Math.min(1, used / ch.movesLimit);
+        if (challengeBarFill) challengeBarFill.style.width = (ratio * 100).toFixed(0) + '%';
+        if (challengeCount) challengeCount.textContent = String(left);
+        challengeIndicator.classList.toggle('warning', left <= 3);
     }
 
     function updateHeader() {
@@ -1331,11 +1369,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         lastScore = 0;
         reviveCount = 0;
         reviveBusy = false;
+        challengeActive = false; // обычный уровень — не «Челлендж»
         // Статистика партии для сюжетной миссии 🎯 — сбрасывается при запуске уровня
         missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         saveState(state);
         updateHeader();
         renderMission();
+        updateChallengeIndicator();
 
         const lv = currentLevelDef();
 
@@ -1542,6 +1582,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateChallengeIndicator();
         updateBoostBar();
         checkAchievements();
         // П. 1.19.3: перезапуск партии — игровой процесс снова активен.
@@ -1786,6 +1827,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         buildLevelsGrid();
         renderDepthsMap();
         renderDailyPuzzle();
+        renderChallenge();
         showModal(levelModal);
     }
 
@@ -1820,10 +1862,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         lastScore = 0;
         reviveCount = 0;
         reviveBusy = false;
+        challengeActive = false; // головоломка — не «Челлендж»
         saveState(state);
         updateHeader();
         // В ежедневной головоломке сюжетной миссии нет — скрываем прогресс-бар
         renderMission();
+        updateChallengeIndicator();
 
         // Детерминированная стартовая доска дня (одна у всех игроков)
         const startTiles = puzzleStartBoard();
@@ -1919,6 +1963,191 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateSharkIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск головоломки — начало игрового процесса.
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+    }
+
+    // ── Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель» ─────
+
+    /** Отобразить блок «Челлендж» на карте уровней: карточки + бейдж наград. */
+    function renderChallenge() {
+        if (!chGrid || !chBlock) return;
+
+        // Бейдж «есть не забранные награды за челленджи»
+        const pending = pendingChallengeRewards(state);
+        if (chBadge) {
+            chBadge.hidden = pending === 0;
+            chBadge.textContent = pending > 0 ? `🎁 +${pending} награды` : '';
+        }
+
+        if (chDesc) {
+            chDesc.textContent = CHALLENGES.length
+                ? 'Собери целевую плитку за ограниченное число ходов. Награда — жемчужины за первое прохождение!'
+                : '';
+        }
+
+        chGrid.innerHTML = '';
+        CHALLENGES.forEach((ch) => {
+            const info = challengeInfo(state, ch.levelId);
+            if (!info) return;
+            const lv = levelById(ch.levelId);
+            const unlocked = isLevelUnlocked(state, ch.levelId);
+
+            const card = document.createElement('div');
+            card.className = ['ch-card', info.done ? 'done' : ''].filter(Boolean).join(' ');
+            card.title = `${lv.name}: собери ${info.target.toLocaleString('ru')} за ${info.movesLimit} ходов`;
+
+            const claim = info.done && !info.claimed
+                ? `<button class="ch-claim" type="button">🎁 ${info.reward}</button>`
+                : '';
+
+            card.innerHTML = `
+                <div class="ch-num">Ур. ${info.levelId} · ${lv.name}</div>
+                <div class="ch-goal">Цель: <strong>${info.target.toLocaleString('ru')}</strong></div>
+                <div class="ch-moves">Ходов: ${info.movesLimit}${info.bestMoves ? ` · рекорд ${info.bestMoves}` : ''}</div>
+                <div class="ch-reward">${info.done ? (info.claimed ? '✓ Получено' : `🎁 +${info.reward} жемчужин`) : `Награда: +${info.reward}`}</div>
+                ${claim}
+            `;
+
+            // Клик по карточке (не по кнопке «Забрать») запускает челлендж
+            if (unlocked) {
+                card.addEventListener('click', () => {
+                    hideModal(levelModal);
+                    startChallenge(ch.levelId);
+                });
+            }
+
+            // Забрать награду
+            const claimBtn = card.querySelector('.ch-claim');
+            if (claimBtn) {
+                claimBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const got = claimChallengeReward(state, ch.levelId);
+                    saveState(state);
+                    updateDoubloons();
+                    if (got > 0) showToast(`+${got} жемчужин за челлендж!`, '⏱️');
+                    renderChallenge();
+                });
+            }
+
+            chGrid.appendChild(card);
+        });
+    }
+
+    /** Запустить челлендж уровня: цель и лимит ходов, без прилива/акулы/способностей. */
+    function startChallenge(levelId) {
+        const challenge = challengeForLevel(levelId);
+        if (!challenge) return;
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        hideModal(levelModal);
+
+        const lv = levelById(challenge.levelId);
+        ensureChallenges(state);
+        state.currentLevel = challenge.levelId; // челлендж использует уровень как контекст
+        lastScore = 0;
+        reviveCount = 0;
+        reviveBusy = false;
+        challengeActive = true;
+        saveState(state);
+        updateHeader();
+        renderMission();
+        updateChallengeIndicator();
+
+        game = new Game({
+            boardElement:  boardEl,
+            size:          lv.size,
+            target:        challenge.target,
+            infinity:      false,
+            tide:          null, // в челлендже — чистый 2048, без прилива
+            moves:         null,
+            shark:         null, // и без акулы
+            abilities:     null, // и без плиток-способностей
+            moveLimit:     challenge.movesLimit, // ⏱️ «N ходов на цель»
+            appearanceMultiplier: 1,
+            fourChance:    0.1,
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove:  () => {
+                if (state.sound !== false) playMove();
+                state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+                updateChallengeIndicator();
+            },
+            onTide:  null,
+            onThreat: null,
+            onSharkEat: null,
+            onAbility: null,
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
+                const reward = comboReward({ merges: n, streak: game.streak });
+                if (reward.score > 0) {
+                    game.addScore(reward.score);
+                    showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
+                }
+            },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); },
+            onTarget: () => {},
+            onWin: (score) => {
+                const res = recordChallengeResult(state, challenge.levelId, {
+                    completed: true,
+                    score,
+                    movesUsed: game ? game.getMoves() : 0,
+                });
+                if (res.isNewDone) {
+                    addDoubloons(challenge.reward, 'челлендж', '⏱️');
+                    state.dailyCounters.wins = (state.dailyCounters.wins || 0) + 1;
+                }
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playWin();
+                spawnConfetti(90, true);
+                showWinModal(score, false);
+                // Переопределим заголовок модалки под челлендж
+                modalIcon.textContent  = '⏱️';
+                modalTitle.textContent = 'Челлендж пройден!';
+                modalMessage.textContent = res.isNewDone
+                    ? `Собрал ${challenge.target.toLocaleString('ru')} за ${challenge.movesLimit} ходов! +${challenge.reward} жемчужин.`
+                    : `Собрал ${challenge.target.toLocaleString('ru')} за ${challenge.movesLimit} ходов!`;
+            },
+            onGameOver: (score) => {
+                recordChallengeResult(state, challenge.levelId, {
+                    completed: false,
+                    score,
+                    movesUsed: game ? game.getMoves() : 0,
+                });
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playGameOver();
+                showGameOverModal(score);
+                // Переопределим текст: челлендж закончился из-за лимита ходов или тупика
+                modalIcon.textContent  = '⏱️';
+                modalTitle.textContent = 'Челлендж не пройден';
+                modalMessage.textContent = game && game.getMoves() >= challenge.movesLimit
+                    ? `Ходы закончились (${challenge.movesLimit}). Цель ${challenge.target.toLocaleString('ru')} не собрана. Попробуй ещё!`
+                    : `Нет доступных ходов. До цели ${challenge.target.toLocaleString('ru')} не хватило. Попробуй ещё!`;
+            },
+        });
+
+        state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+        saveState(state);
+        updateStats();
+        updateUndoState();
+        updateMoves();
+        updateTideIndicator();
+        updateThreatIndicator();
+        updateSharkIndicator();
+        updateChallengeIndicator();
+        updateBoostBar();
+        // П. 1.19.3: запуск челленджа — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
     }
 

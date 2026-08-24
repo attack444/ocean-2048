@@ -63,6 +63,7 @@ function makeGame(opts = {}) {
         onScoreUpdate: opts.onScoreUpdate || (() => {}),
         appearanceMultiplier: opts.appearanceMultiplier,
         fourChance: opts.fourChance,
+        moveLimit: opts.moveLimit,
         random: opts.random,
     });
     Game.prototype._addNewTile = addTile;
@@ -1594,5 +1595,81 @@ describe('Game abilities (Плитки-способности ⚡)', () => {
         assert.equal(g.abilitySpawned, 0);
         assert.equal(g.jellyFreeze, 0);
         assert.equal(g.tiles.filter(Boolean).length, 2);
+    });
+
+    // ── Режим «Челлендж» ⏱️: лимит ходов (moveLimit) ─────────────
+
+    // makeChallengeGame собирает игру с лимитом ходов; флаги onWin/onGameOver
+    // срабатывают через setTimeout, поэтому проверяем синхронные g.won / g.gameOver.
+    function makeChallengeGame({ limit = 1, target = 2048 } = {}) {
+        const g = makeGame({
+            target,
+            moveLimit: limit,
+            onWin: () => {},
+            onGameOver: () => {},
+        });
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.winCelebrated = false;
+        return g;
+    }
+
+    it('game over is triggered when the move limit is exhausted', () => {
+        const g = makeChallengeGame({ limit: 1 });
+        g.tiles = [
+            null, { id: 1, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left'); // 1-й (последний) ход
+        assert.equal(g.movesCount, 1);
+        assert.equal(g.gameOver, true);
+    });
+
+    it('a win on the last allowed move takes priority over the limit', () => {
+        const g = makeChallengeGame({ limit: 1, target: 4 });
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left'); // слияние 2+2 → 4, цель достигнута на последнем ходу
+        assert.equal(g.won, true);
+        assert.equal(g.gameOver, false);
+    });
+
+    it('moves before the limit do not end the game', () => {
+        const g = makeChallengeGame({ limit: 3 });
+        g.tiles = [
+            null, { id: 1, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left'); // 1-й ход
+        assert.equal(g.gameOver, false);
+        g.handleMove('right'); // 2-й ход
+        assert.equal(g.gameOver, false);
+        assert.equal(g.movesCount, 2);
+    });
+
+    it('without a moveLimit the game behaves as before (regression)', () => {
+        const g = makeGame();
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            null, { id: 1, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left');
+        g.handleMove('right');
+        assert.equal(g.gameOver, false);
+        assert.equal(g.movesCount, 2);
     });
 });

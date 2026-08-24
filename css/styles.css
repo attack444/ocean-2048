@@ -2079,6 +2079,135 @@ body.theme-light .shark-indicator { background: linear-gradient(90deg, #fde0e0, 
 body.theme-light .shark-count     { color: #b71c1c; }
 
 /* ==================================================================
+   Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель»
+   ================================================================== */
+.challenge-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 500px;
+    margin: 0 auto 8px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, rgba(60,40,10,.92), rgba(120,80,15,.88));
+    border: 1px solid rgba(255,200,80,.35);
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+.challenge-emoji { font-size: 1.05rem; }
+.challenge-label { white-space: nowrap; }
+.challenge-target-wrap { white-space: nowrap; }
+.challenge-target-wrap strong { color: var(--gold); }
+.challenge-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.12);
+    overflow: hidden;
+}
+.challenge-bar-fill {
+    display: block;
+    height: 100%;
+    width: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #ffd740, #ffa000);
+    transition: width .3s ease;
+}
+.challenge-count {
+    min-width: 30px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: bold;
+    color: #ffe9c0;
+}
+/* Осталось мало ходов — тревожный оттенок */
+.challenge-indicator.warning .challenge-bar-fill { background: linear-gradient(90deg, #ffd740, #ff3d3d); }
+.challenge-indicator.warning .challenge-count   { color: #ffd740; }
+.challenge-indicator[hidden] { display: none; }
+
+/* ── Блок «Челлендж» на карте уровней ── */
+.challenge-block {
+    background: linear-gradient(135deg, rgba(80,56,12,.5), rgba(60,42,10,.45));
+    border: 2px solid rgba(255,200,80,.45);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(255,200,80,.06);
+    position: relative;
+    overflow: hidden;
+}
+.challenge-block::before {
+    content: '⏱️';
+    position: absolute;
+    right: -8px;
+    bottom: -14px;
+    font-size: 5rem;
+    opacity: .1;
+    pointer-events: none;
+}
+.ch-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.ch-title {
+    color: var(--gold-light);
+    font-weight: bold;
+    font-size: .95rem;
+    letter-spacing: .3px;
+}
+.ch-badge {
+    color: #ffd740;
+    font-size: .75rem;
+    font-weight: bold;
+    white-space: nowrap;
+}
+.ch-desc {
+    color: rgba(255,255,255,.75);
+    font-size: .78rem;
+    line-height: 1.4;
+    margin-bottom: 10px;
+}
+.ch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+}
+.ch-card {
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 10px;
+    padding: 8px;
+    text-align: center;
+    background: rgba(0,0,0,.18);
+    cursor: pointer;
+    transition: transform .15s ease, border-color .15s ease;
+}
+.ch-card:hover { transform: translateY(-2px); border-color: rgba(255,200,80,.6); }
+.ch-card.done {
+    border-color: rgba(76,175,80,.6);
+    background: rgba(76,175,80,.1);
+}
+.ch-card .ch-num { font-size: .8rem; color: var(--gold); font-weight: bold; }
+.ch-card .ch-goal { font-size: .72rem; color: rgba(255,255,255,.85); }
+.ch-card .ch-moves { font-size: .68rem; color: rgba(255,255,255,.6); }
+.ch-card .ch-reward { font-size: .68rem; color: #ffd740; }
+.ch-card .ch-claim {
+    margin-top: 6px;
+    font-size: .7rem;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(135deg, #ffb300, #ff8f00);
+    color: #1a1205;
+    font-weight: bold;
+}
+.ch-card .ch-claim:hover { filter: brightness(1.1); }
+
+/* ==================================================================
    ПАНЕЛЬ БУСТОВ
    ================================================================== */
 .boost-bar {
