@@ -506,7 +506,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderCombo();
     }
 
-    // ── Сюжетная миссия глубины 🎯 (Фаза 2: «Цель ≠ набери N») ──
+    // ── Сюжетная миссия глубины 🎯 (Фаза 2: «Цель ≠ набери N»; Фаза 4.5:
+    //    позиционные цели 🪸 — миссии привязаны к месту на доске) ──
     function missionStatsForLevel() {
         const mt = game ? game.getMaxTile() : 0;
         const combo = game ? game.streak : 0;
@@ -520,28 +521,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    /** Текущая доска партии (для позиционных целей) или null вне партии. */
+    function missionBoard() {
+        return game ? game.getBoard() : null;
+    }
+
     function renderMission() {
         if (!missionBar) return;
         const mission = missionForLevel(state.currentLevel);
         if (!mission) { missionBar.hidden = true; return; }
 
         const stats = missionStatsForLevel();
-        const done = isMissionComplete(mission, stats);
+        const board = missionBoard();
+        const done = isMissionComplete(mission, stats, board);
         const claimed = isMissionClaimed(state, mission.id);
-        const progress = missionProgress(mission, stats);
-        const target = Number(mission.target) || 1;
+        const progress = missionProgress(mission, stats, board);
 
         missionBar.hidden = false;
         missionBar.classList.toggle('done', done && !claimed);
         if (missionIcon) missionIcon.textContent = mission.icon;
         if (missionTitle) missionTitle.textContent = done && !claimed ? `Миссия выполнена! ${mission.title}` : mission.title;
-        if (missionFill) missionFill.style.width = Math.round((progress / target) * 100) + '%';
-        if (missionCaption) {
-            missionCaption.textContent = claimed
-                ? 'Награда получена 🎁'
-                : done
-                    ? `Забери награду: +${mission.reward} 🦪`
-                    : `${mission.desc} (${progress.toLocaleString('ru')} / ${target.toLocaleString('ru')})`;
+        if (mission.type === 'position') {
+            // Позиционная цель: прогресс-бар «выполнена/нет» (0/1) + текст без числителя
+            if (missionFill) missionFill.style.width = progress === 1 ? '100%' : '0%';
+            if (missionCaption) {
+                missionCaption.textContent = claimed
+                    ? 'Награда получена 🎁'
+                    : done
+                        ? `Забери награду: +${mission.reward} 🦪`
+                        : mission.desc;
+            }
+        } else {
+            const target = Number(mission.target) || 1;
+            if (missionFill) missionFill.style.width = Math.round((progress / target) * 100) + '%';
+            if (missionCaption) {
+                missionCaption.textContent = claimed
+                    ? 'Награда получена 🎁'
+                    : done
+                        ? `Забери награду: +${mission.reward} 🦪`
+                        : `${mission.desc} (${progress.toLocaleString('ru')} / ${target.toLocaleString('ru')})`;
+            }
         }
         if (missionClaim) {
             missionClaim.hidden = !(done && !claimed);
@@ -552,7 +571,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function claimMission() {
         const mission = missionForLevel(state.currentLevel);
         if (!mission) return;
-        const got = claimMissionReward(state, mission.id, missionStatsForLevel());
+        const got = claimMissionReward(state, mission.id, missionStatsForLevel(), missionBoard());
         if (got > 0) {
             saveState(state);
             updateDoubloons();

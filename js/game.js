@@ -307,6 +307,15 @@ export default class Game {
         return max;
     }
 
+    /**
+     * Текущая доска (плоский массив размера size*size), каждый элемент —
+     * плитка { value } или null. Для позиционных целей (Фаза 4.5
+     * «Глубина ядра»): миссии проверяют расположение плиток на доске.
+     */
+    getBoard() {
+        return this.tiles.map((t) => (t ? { value: t.value } : null));
+    }
+
     /** Количество сделанных ходов в текущей партии. */
     getMoves() { return this.movesCount; }
 
