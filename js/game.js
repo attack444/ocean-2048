@@ -18,6 +18,8 @@ export default class Game {
         this.onTarget      = config.onTarget      || null;
         this.onTide        = config.onTide        || null;
         this.onThreat      = config.onThreat      || null;
+        this.onSharkEat    = config.onSharkEat    || null;
+        this.onAbility     = config.onAbility     || null;
         this.infinity      = !!config.infinity;
 
         // Прилив 🌊 — конфиг механики «Глубины ядра» (null = выключено)
@@ -25,6 +27,12 @@ export default class Game {
 
         // Ходы как ресурс 🧮 — конфиг механики «Глубины ядра» (null = выключено)
         this.movesConfig   = this._normalizeMoves(config.moves);
+
+        // Акула-охотник 🦈 — конфиг механики «Глубины ядра» (null = выключено)
+        this.shark         = this._normalizeShark(config.shark);
+
+        // Плитки-способности ⚡ — конфиг механики «Глубины ядра» (null = выключено)
+        this.abilities     = this._normalizeAbilities(config.abilities);
 
         // Множитель очков от скина/темы (+% за косметику, «Ценность покупок»)
         this.appearanceMultiplier = Math.max(1, Number(config.appearanceMultiplier) || 1);
@@ -75,6 +83,20 @@ export default class Game {
         this.threatSweptValue   = 0;    // суммарное значение унесённых плиток
         this.movesPenaltyActive = false; // вспышка «водоворот» для UI
 
+        // Акула-охотник 🦈: состояние механики
+        this.sharkPos           = null; // индекс клетки с акулой (null — ещё не появилась)
+        this.sharkTarget        = -1;   // индекс текущей цели (для подсветки UI)
+        this.sharkMovesUntilStep = 0;   // сколько ходов осталось до шага акулы
+        this.sharkEaten         = 0;    // сколько плиток съедено
+        this.sharkEatenValue    = 0;    // суммарное значение съеденных плиток
+        this.sharkActive        = false; // вспышка «укус/шаг» для UI
+
+        // Плитки-способности ⚡: состояние механики
+        this.jellyFreeze        = 0;    // сколько ходов прилив «заморожен» (медуза 🪼)
+        this.abilitySpawned     = 0;    // сколько способностей выпало на доске
+        this.abilityUsed        = 0;    // сколько способностей активировано игроком
+        this.abilityCleared     = 0;    // сколько плиток убрано способностями
+
         // Рендер (абсолютное позиционирование плиток)
         this._tileEls      = new Map();
         this._pad          = 8;
@@ -84,11 +106,13 @@ export default class Game {
         // Touch state
         this._touchStartX = 0;
         this._touchStartY = 0;
+        this._touchAbilityIdx = null;  // индекс плитки-способности под пальцем (тап = активация)
 
         // Bound handlers (нужны для removeEventListener)
         this._keyHandler        = (e) => this._handleKeyPress(e);
         this._touchStartHandler = (e) => this._handleTouchStart(e);
         this._touchEndHandler   = (e) => this._handleTouchEnd(e);
+        this._clickHandler      = (e) => this._handleTileClick(e);
 
         this.init();
         this._attachEventListeners();
@@ -124,6 +148,16 @@ export default class Game {
         this.threatSwept        = 0;
         this.threatSweptValue   = 0;
         this.movesPenaltyActive = false;
+        this.sharkPos           = null;
+        this.sharkTarget        = -1;
+        this.sharkMovesUntilStep = this.shark ? this.shark.appearMoves : 0;
+        this.sharkEaten         = 0;
+        this.sharkEatenValue    = 0;
+        this.sharkActive        = false;
+        this.jellyFreeze        = 0;
+        this.abilitySpawned     = 0;
+        this.abilityUsed        = 0;
+        this.abilityCleared     = 0;
 
         this._addNewTile();
         this._addNewTile();
@@ -137,6 +171,7 @@ export default class Game {
         document.removeEventListener('keydown', this._keyHandler);
         this.boardElement.removeEventListener('touchstart', this._touchStartHandler);
         this.boardElement.removeEventListener('touchend',   this._touchEndHandler);
+        this.boardElement.removeEventListener('click', this._clickHandler);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -148,7 +183,7 @@ export default class Game {
         if (this.paused || this.gameOver || this._busy) return;
 
         const prev = {
-            tiles: this.tiles.map(t => (t ? { id: t.id, value: t.value } : null)),
+            tiles: this.tiles.map(t => (t ? { id: t.id, value: t.value, ability: t.ability || null } : null)),
             score: this.score,
             streak: this.streak,
             tideMoves: this.tideMovesUntilRise,
@@ -158,6 +193,15 @@ export default class Game {
             threatSwept: this.threatSwept,
             threatSweptValue: this.threatSweptValue,
             movesWithoutMerge: this.movesWithoutMerge,
+            sharkPos: this.sharkPos,
+            sharkTarget: this.sharkTarget,
+            sharkMovesUntilStep: this.sharkMovesUntilStep,
+            sharkEaten: this.sharkEaten,
+            sharkEatenValue: this.sharkEatenValue,
+            jellyFreeze: this.jellyFreeze,
+            abilitySpawned: this.abilitySpawned,
+            abilityUsed: this.abilityUsed,
+            abilityCleared: this.abilityCleared,
         };
 
         const scoreBefore = this.score;
@@ -188,10 +232,17 @@ export default class Game {
         this._busy = true;
         this._animateMove(moves, () => {
             this._busy = false;
+            // Плитки-способности ⚡: медуза 🪼 «замораживает» прилив на ход.
+            // Прилив пропускается, пока действует заморозка (frozen до декремента).
+            const frozen = this.jellyFreeze > 0;
+            if (frozen) this.jellyFreeze--;
             // Ходы как ресурс 🧮: штраф за «бесполезный» ход (до отсчёта прилива)
             this._tickMovesPenalty();
             // Прилив 🌊: отсчёт ходов и смыв нижних рядов (до спавна новой плитки)
-            this._tickTide();
+            // (пропускается, если медуза «заморозила» прилив на этот ход)
+            if (!frozen) this._tickTide();
+            // Акула-охотник 🦈: отсчёт ходов и шаг акулы (после прилива, до спавна)
+            this._tickShark();
             this._addNewTile();
             this.render();
             this.onScoreUpdate(this.score);
@@ -230,8 +281,18 @@ export default class Game {
         if (typeof prev.threatSwept === 'number') this.threatSwept = prev.threatSwept;
         if (typeof prev.threatSweptValue === 'number') this.threatSweptValue = prev.threatSweptValue;
         if (typeof prev.movesWithoutMerge === 'number') this.movesWithoutMerge = prev.movesWithoutMerge;
+        if (typeof prev.sharkPos !== 'undefined') this.sharkPos = prev.sharkPos;
+        if (typeof prev.sharkTarget !== 'undefined') this.sharkTarget = prev.sharkTarget;
+        if (typeof prev.sharkMovesUntilStep !== 'undefined') this.sharkMovesUntilStep = prev.sharkMovesUntilStep;
+        if (typeof prev.sharkEaten !== 'undefined') this.sharkEaten = prev.sharkEaten;
+        if (typeof prev.sharkEatenValue !== 'undefined') this.sharkEatenValue = prev.sharkEatenValue;
+        if (typeof prev.jellyFreeze !== 'undefined') this.jellyFreeze = prev.jellyFreeze;
+        if (typeof prev.abilitySpawned !== 'undefined') this.abilitySpawned = prev.abilitySpawned;
+        if (typeof prev.abilityUsed !== 'undefined') this.abilityUsed = prev.abilityUsed;
+        if (typeof prev.abilityCleared !== 'undefined') this.abilityCleared = prev.abilityCleared;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
+        this.sharkActive   = false;
         this.won           = false;
         this.gameOver      = false;
         this.winCelebrated = false;
@@ -253,7 +314,7 @@ export default class Game {
     /** Сериализация текущей партии для сохранения. */
     getState() {
         return {
-            tiles: this.tiles.map(t => (t ? { value: t.value } : null)),
+            tiles: this.tiles.map(t => (t ? { value: t.value, ability: t.ability || null } : null)),
             score: this.score,
             nextTileId: this._nextTileId,
             moves: this.movesCount,
@@ -263,13 +324,22 @@ export default class Game {
             threatStrikes: this.threatStrikes,
             threatSwept: this.threatSwept,
             threatSweptValue: this.threatSweptValue,
+            sharkPos: this.sharkPos,
+            sharkTarget: this.sharkTarget,
+            sharkMovesUntilStep: this.sharkMovesUntilStep,
+            sharkEaten: this.sharkEaten,
+            sharkEatenValue: this.sharkEatenValue,
+            jellyFreeze: this.jellyFreeze,
+            abilitySpawned: this.abilitySpawned,
+            abilityUsed: this.abilityUsed,
+            abilityCleared: this.abilityCleared,
         };
     }
 
     /** Восстановление сохранённой партии. */
     loadState(state) {
         this.tiles = (state.tiles || []).map(t =>
-            t ? { id: this._nextTileId++, value: t.value } : null
+            t ? { id: this._nextTileId++, value: t.value, ability: t.ability || null } : null
         );
         if (this.tiles.length !== this.size * this.size) {
             this.init();
@@ -292,8 +362,21 @@ export default class Game {
         this.threatStrikes    = state.threatStrikes || 0;
         if (typeof state.threatSwept === 'number') this.threatSwept = state.threatSwept;
         if (typeof state.threatSweptValue === 'number') this.threatSweptValue = state.threatSweptValue;
+        if (this.shark && typeof state.sharkPos === 'number') {
+            this.sharkPos = state.sharkPos;
+            this.sharkMovesUntilStep = state.sharkMovesUntilStep
+                || (this.sharkPos === null ? this.shark.appearMoves : this.shark.stepInterval);
+        }
+        if (typeof state.sharkTarget === 'number') this.sharkTarget = state.sharkTarget;
+        if (typeof state.sharkEaten === 'number') this.sharkEaten = state.sharkEaten;
+        if (typeof state.sharkEatenValue === 'number') this.sharkEatenValue = state.sharkEatenValue;
+        if (typeof state.jellyFreeze === 'number') this.jellyFreeze = state.jellyFreeze;
+        if (typeof state.abilitySpawned === 'number') this.abilitySpawned = state.abilitySpawned;
+        if (typeof state.abilityUsed === 'number') this.abilityUsed = state.abilityUsed;
+        if (typeof state.abilityCleared === 'number') this.abilityCleared = state.abilityCleared;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
+        this.sharkActive   = false;
 
         this._updateGridCSS();
         this.render();
@@ -584,6 +667,310 @@ export default class Game {
         };
     }
 
+    // ──────────────────────────────────────────────────────────
+    // Плитки-способности ⚡ (механика «Глубины ядра»)
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Нормализация конфига «Плитки-способности» (null — механика выключена).
+     * - spawnChance: шанс, что вместо обычной плитки появится способность (0..1);
+     * - types: массив доступных типов (bomb/jelly/crab). Редкие плитки с умением,
+     *   которое игрок активирует сам (тап/клик) — агентивность «когда применить».
+     */
+    _normalizeAbilities(cfg) {
+        if (!cfg || !cfg.enabled) return null;
+        const num = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const ALL = ['bomb', 'jelly', 'crab'];
+        let types = Array.isArray(cfg.types) ? cfg.types.filter(t => ALL.includes(t)) : ALL;
+        if (types.length === 0) types = ALL;
+        return {
+            spawnChance: Math.min(1, Math.max(0, num(cfg.spawnChance, 0.08))),
+            types,
+        };
+    }
+
+    /** Состояние механики «Плитки-способности» для UI (null — выключено). */
+    getAbilities() {
+        if (!this.abilities) return null;
+        return {
+            enabled: true,
+            spawnChance: this.abilities.spawnChance,
+            types: this.abilities.types.slice(),
+            spawned: this.abilitySpawned,
+            used: this.abilityUsed,
+            cleared: this.abilityCleared,
+            freeze: this.jellyFreeze,
+        };
+    }
+
+    /** Найти индекс плитки-способности по id (используется в тестах/UI). */
+    findAbility() {
+        if (!this.abilities) return -1;
+        for (let i = 0; i < this.tiles.length; i++) {
+            const t = this.tiles[i];
+            if (t && t.ability) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Активация способности игроком (тап/клик по плитке). Три типа:
+     * - bomb 💣 — взрыв крестом: убирает строку и столбец через плитку;
+     * - jelly 🪼 — «заморозка» прилива на 1 ход (jellyFreeze);
+     * - crab 🦀 — сливает две самые крупные плитки в одну (сумму) без потери очков.
+     * Возвращает описание эффекта для UI/тостов, или null если нечего активировать.
+     */
+    activateAbility(idx) {
+        if (!this.abilities || this._busy || this.gameOver || this.paused) return null;
+        const t = this.tiles[idx];
+        if (!t || !t.ability) return null;
+
+        const kind = t.ability;
+        let result = null;
+        if (kind === 'bomb')   result = this._abilityBomb(idx);
+        if (kind === 'jelly')  result = this._abilityJelly(idx);
+        if (kind === 'crab')   result = this._abilityCrab(idx);
+        if (!result) return null;
+
+        // Съедаем плитку-способность (после применения эффекта)
+        this.tiles[idx] = null;
+        this.abilityUsed++;
+        this.render();
+        this.onScoreUpdate(this.score);
+        if (this.onAbility) this.onAbility({ kind, ...result });
+        if (this.onSave) this.onSave();
+        return { kind, ...result };
+    }
+
+    /** 💣 Бомба: убирает строку и столбец через плитку (крест). */
+    _abilityBomb(idx) {
+        const n = this.size;
+        const r = Math.floor(idx / n);
+        const c = idx % n;
+        const cleared = [];
+        for (let i = 0; i < n; i++) {
+            const rowIdx = r * n + i;
+            const colIdx = i * n + c;
+            for (const ci of [rowIdx, colIdx]) {
+                const t = this.tiles[ci];
+                if (!t) continue;
+                this.abilityCleared++;
+                cleared.push({ idx: ci, value: t.value, ability: t.ability || null });
+                this.tiles[ci] = null;
+            }
+        }
+        // Убираем саму плитку-бомбу (она входит в крест)
+        const self = this.tiles[idx];
+        if (self) {
+            this.abilityCleared++;
+            cleared.push({ idx, value: self.value, ability: 'bomb' });
+            this.tiles[idx] = null;
+        }
+        return { cleared };
+    }
+
+    /** 🪼 Медуза: «замораживает» прилив на 1 ход (jellyFreeze = 1). */
+    _abilityJelly(_idx) {
+        this.jellyFreeze = 1;
+        return { freeze: 1 };
+    }
+
+    /** 🦀 Краб: сливает две самые крупные плитки в одну (сумму) без очков. */
+    _abilityCrab(_idx) {
+        const filled = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            const t = this.tiles[i];
+            if (t && !t.ability) filled.push({ idx: i, value: t.value });
+        }
+        if (filled.length < 2) return null;
+        filled.sort((a, b) => b.value - a.value);
+        const a = filled[0];
+        const b = filled[1];
+        const sum = a.value + b.value;
+        const mergedIdx = a.idx;
+        this.tiles[mergedIdx] = { id: this._nextTileId++, value: sum, justSpawned: true };
+        this.tiles[b.idx] = null;
+        return {
+            from: [a.idx, b.idx],
+            to: mergedIdx,
+            value: sum,
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Акула-охотник 🦈 (механика «Глубины ядра»)
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Нормализация конфига «Акула-охотник» (null — механика выключена).
+     * - appearMoves: через сколько ходов акула появляется на доске;
+     * - stepInterval: через сколько ходов акула делает шаг (движется/ест);
+     * - targetThreshold: акула охотится на плитки не ниже этого значения;
+     * - protectChance: шанс (0..1), что акула «не заметит» цель (защита мелких).
+     */
+    _normalizeShark(cfg) {
+        if (!cfg || !cfg.enabled) return null;
+        const num = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        return {
+            appearMoves:      Math.max(1, Math.floor(num(cfg.appearMoves, 8))),
+            stepInterval:     Math.max(1, Math.floor(num(cfg.stepInterval, 4))),
+            targetThreshold:  Math.max(2, Math.floor(num(cfg.targetThreshold, 16))),
+            protectChance:    Math.min(1, Math.max(0, num(cfg.protectChance, 0.25))),
+        };
+    }
+
+    /**
+     * Отсчёт ходов: сперва до появления акулы, затем до её шага.
+     * Вызывается после _tickTide() и до _addNewTile() — акула видит
+     * доску после прилива, но до спавна новой плитки.
+     */
+    _tickShark() {
+        if (!this.shark) return;
+        // Акула ещё не появилась — отсчёт до появления
+        if (this.sharkPos === null) {
+            if (this.sharkMovesUntilStep > 0) this.sharkMovesUntilStep--;
+            if (this.sharkMovesUntilStep <= 0) this._spawnShark();
+            return;
+        }
+        // Акула на доске — отсчёт до шага
+        this.sharkMovesUntilStep--;
+        if (this.sharkMovesUntilStep <= 0) {
+            this.sharkMovesUntilStep = this.shark.stepInterval;
+            this._sharkStep();
+        }
+    }
+
+    /** Появление акулы на случайной пустой клетке доски. */
+    _spawnShark() {
+        const empty = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            if (this.tiles[i] === null) empty.push(i);
+        }
+        if (empty.length === 0) return;
+        const idx = empty[Math.floor(this._rng() * empty.length)];
+        this.sharkPos = idx;
+        this.sharkMovesUntilStep = this.shark.stepInterval;
+        this.sharkActive = true;
+        if (this.onSharkEat) this.onSharkEat({ spawn: idx });
+    }
+
+    /**
+     * Шаг акулы: выбирает цель (крупная «незащищённая» плитка рядом) и
+     * либо съедает её, либо приближается на одну клетку.
+     */
+    _sharkStep() {
+        if (this.sharkPos === null) return;
+        const target = this._sharkPickTarget();
+        if (target === -1) {
+            this.sharkTarget = -1;
+            this.sharkActive = false;
+            return;
+        }
+        this.sharkTarget = target;
+
+        // Если акула уже на цели — съедает плитку
+        if (target === this.sharkPos) {
+            this._sharkEat(target);
+            return;
+        }
+
+        // Шанс «не заметить» цель — акула остаётся на месте (защита мелких плиток)
+        if (this.shark.protectChance > 0 && this._rng() < this.shark.protectChance) {
+            this.sharkActive = true;
+            return;
+        }
+
+        // Иначе — шаг на одну клетку по кратчайшему пути к цели
+        const next = this._sharkNextStep(target);
+        if (next === -1) {
+            this.sharkActive = true;
+            return;
+        }
+        // Если в клетке, куда шагает акула, есть плитка — она съедается (жертва по пути)
+        const t = this.tiles[next];
+        this.sharkPos = next;
+        this.sharkActive = true;
+        if (t) this._sharkEat(next);
+    }
+
+    /**
+     * Выбор цели: плитка со значением >= targetThreshold, «незащищённая».
+     * Предпочтение — по сумме значения и близости к акуле (чем крупнее
+     * и ближе, тем привлекательнее). Случайный выбор среди равноценных.
+     */
+    _sharkPickTarget() {
+        if (!this.shark || this.sharkPos === null) return -1;
+        const candidates = [];
+        let bestKey = -1;
+        for (let i = 0; i < this.tiles.length; i++) {
+            const t = this.tiles[i];
+            if (!t || t.value < this.shark.targetThreshold) continue;
+            const key = this._sharkAttract(i);
+            if (key > bestKey) { bestKey = key; candidates.length = 0; }
+            if (key === bestKey) candidates.push(i);
+        }
+        if (candidates.length === 0) return -1;
+        // Случайный выбор среди равноценных (RNG-детерминирован при общем сиде)
+        return candidates[Math.floor(this._rng() * candidates.length)];
+    }
+
+    /** Привлекательность цели для акулы: значение + близость. */
+    _sharkAttract(idx) {
+        const n = this.size;
+        const value = this.tiles[idx] ? this.tiles[idx].value : 0;
+        const dr = Math.abs(Math.floor(idx / n) - Math.floor(this.sharkPos / n));
+        const dc = Math.abs((idx % n) - (this.sharkPos % n));
+        return value - (dr + dc) * 4;
+    }
+
+    /** Следующая клетка кратчайшего пути к цели (сдвиг на 1 по строке/столбцу). */
+    _sharkNextStep(target) {
+        const n = this.size;
+        const sr = Math.floor(this.sharkPos / n), sc = this.sharkPos % n;
+        const tr = Math.floor(target / n),     tc = target % n;
+        if (sr === tr && sc === tc) return -1;
+        if (sr < tr) return (sr + 1) * n + sc;
+        if (sr > tr) return (sr - 1) * n + sc;
+        if (sc < tc) return sr * n + (sc + 1);
+        return sr * n + (sc - 1);
+    }
+
+    /** Поедание плитки: снимает её с доски и считает съеденную ценность. */
+    _sharkEat(idx) {
+        const t = this.tiles[idx];
+        if (!t) {
+            this.sharkActive = true;
+            return;
+        }
+        this.tiles[idx] = null;
+        this.sharkEaten++;
+        this.sharkEatenValue += t.value;
+        this.sharkActive = true;
+        if (this.onSharkEat) this.onSharkEat({ idx, value: t.value, pos: this.sharkPos });
+    }
+
+    /** Состояние механики «Акула-охотник» для UI (null — выключено). */
+    getShark() {
+        if (!this.shark) return null;
+        return {
+            enabled: true,
+            appearMoves: this.shark.appearMoves,
+            stepInterval: this.shark.stepInterval,
+            targetThreshold: this.shark.targetThreshold,
+            pos: this.sharkPos,
+            target: this.sharkTarget,
+            movesUntilStep: this.sharkMovesUntilStep,
+            eaten: this.sharkEaten,
+            eatenValue: this.sharkEatenValue,
+        };
+    }
+
     /**
      * Подсказка: оценивает все 4 направления и возвращает лучший ход.
      * @returns {{direction:string, fromIndices:number[]} | null}
@@ -688,6 +1075,7 @@ export default class Game {
         document.addEventListener('keydown', this._keyHandler);
         this.boardElement.addEventListener('touchstart', this._touchStartHandler, { passive: false });
         this.boardElement.addEventListener('touchend',   this._touchEndHandler,   { passive: false });
+        this.boardElement.addEventListener('click',      this._clickHandler);
     }
 
     _handleKeyPress(e) {
@@ -718,6 +1106,7 @@ export default class Game {
         if (e.touches.length !== 1) return;
         this._touchStartX = e.touches[0].clientX;
         this._touchStartY = e.touches[0].clientY;
+        this._touchAbilityIdx = this._abilityAtPoint(e.touches[0].clientX, e.touches[0].clientY);
         e.preventDefault();
     }
 
@@ -726,6 +1115,15 @@ export default class Game {
         const dx = e.changedTouches[0].clientX - this._touchStartX;
         const dy = e.changedTouches[0].clientY - this._touchStartY;
         const MIN_SWIPE = 40;
+
+        // Тап по плитке-способности: активируем, не двигаем доску
+        const abilityIdx = this._touchAbilityIdx;
+        this._touchAbilityIdx = null;
+        if (abilityIdx !== null && Math.abs(dx) < MIN_SWIPE && Math.abs(dy) < MIN_SWIPE) {
+            this.activateAbility(abilityIdx);
+            e.preventDefault();
+            return;
+        }
 
         if (Math.abs(dx) > Math.abs(dy)) {
             if (Math.abs(dx) >= MIN_SWIPE) {
@@ -740,6 +1138,33 @@ export default class Game {
             }
         }
         e.preventDefault();
+    }
+
+    /**
+     * Плитка-способность под точкой касания/клика (индекс клетки) или null.
+     * Только для активной механики; обычные плитки возвращают null (не тапаются).
+     */
+    _abilityAtPoint(clientX, clientY) {
+        if (!this.abilities) return null;
+        if (!this.boardElement) return null;
+        const rect = this.boardElement.getBoundingClientRect();
+        const x = clientX - rect.left - this._pad;
+        const y = clientY - rect.top  - this._pad;
+        if (x < 0 || y < 0) return null;
+        const c = Math.floor(x / (this._cell + this._gap));
+        const r = Math.floor(y / (this._cell + this._gap));
+        if (c < 0 || c >= this.size || r < 0 || r >= this.size) return null;
+        const idx = r * this.size + c;
+        const t = this.tiles[idx];
+        return (t && t.ability) ? idx : null;
+    }
+
+    /** Клик мышью по плитке-способности (десктоп/веб). */
+    _handleTileClick(e) {
+        const idx = this._abilityAtPoint(e.clientX, e.clientY);
+        if (idx === null) return;
+        e.preventDefault();
+        this.activateAbility(idx);
     }
 
     /** Фаза 1: короткий «микропульс» доски при свайпе (тач-отклик). */
@@ -805,7 +1230,9 @@ export default class Game {
                 const to   = indices[wi];
                 const next = items[k + 1];
 
-                if (next && next.tile.value === tile.value) {
+                // Плитки-способности ⚡ — «мягкие стенки»: не сливаются с обычными
+                // и между собой, ведут себя как отдельная плитка (двигаются как блок).
+                if (next && next.tile.value === tile.value && !tile.ability && !next.tile.ability) {
                     const survivor = { id: tile.id, value: tile.value * 2 };
                     this.tiles[to] = survivor;
                     moves.push({ id: tile.id, from, to, consumed: false, merge: true, value: survivor.value });
@@ -841,9 +1268,32 @@ export default class Game {
         for (let i = 0; i < this.tiles.length; i++) if (this.tiles[i] === null) empty.push(i);
         if (empty.length === 0) return;
         const idx = empty[Math.floor(this._rng() * empty.length)];
+
+        // Плитки-способности ⚡: редкий шанс вместо обычной плитки спавнится способность
+        if (this.abilities && this._rng() < this.abilities.spawnChance) {
+            this._spawnAbilityTile(idx);
+            return;
+        }
+
         // Перк «Дух четвёрки»: шанс плитки 4 выше стандартных 10% (fourChance)
         const chance = Math.min(1, Math.max(0, Number(this.fourChance) || 0.1));
         this.tiles[idx] = { id: this._nextTileId++, value: this._rng() < chance ? 4 : 2, justSpawned: true };
+    }
+
+    /**
+     * Создание плитки-способности на клетке idx (обычное значение 2, но НЕ
+     * участвует в обычных слияниях). Тип выбирается случайно из конфига.
+     */
+    _spawnAbilityTile(idx) {
+        const types = this.abilities.types;
+        const kind = types[Math.floor(this._rng() * types.length)];
+        this.tiles[idx] = {
+            id: this._nextTileId++,
+            value: 2,
+            ability: kind,
+            justSpawned: true,
+        };
+        this.abilitySpawned++;
     }
 
     // ──────────────────────────────────────────────────────────
@@ -856,6 +1306,10 @@ export default class Game {
 
     _checkGameOver() {
         if (this.tiles.some(t => t === null)) return false;
+
+        // Плитка-способность ⚡ — «спасательный круг»: игрок может активировать её
+        // (бомба расчистит поле, медуза/краб изменят доску) — не конец игры.
+        if (this.abilities && this.tiles.some(t => t && t.ability)) return false;
 
         for (let r = 0; r < this.size; r++) {
             for (let c = 0; c < this.size; c++) {
@@ -883,6 +1337,8 @@ export default class Game {
             tile.justSpawned = false;
             this._createTileEl(tile, i, appear);
         });
+
+        this._renderShark();
 
         this.boardElement.classList.toggle('won', this.won);
     }
@@ -921,12 +1377,50 @@ export default class Game {
         };
     }
 
+    _renderShark() {
+        if (!this.boardElement) return;
+        let el = this.boardElement.querySelector(':scope > .shark');
+        if (this.sharkPos === null) {
+            if (el) el.remove();
+            return;
+        }
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'shark';
+            el.textContent = '🦈';
+            this.boardElement.appendChild(el);
+        }
+        this._updateSharkEl(el);
+    }
+
+    _updateSharkEl(el) {
+        const { x, y } = this._posForIndex(this.sharkPos);
+        el.style.width  = this._cell + 'px';
+        el.style.height = this._cell + 'px';
+        el.style.setProperty('--tx', x + 'px');
+        el.style.setProperty('--ty', y + 'px');
+        el.style.transform = `translate(${x}px, ${y}px)`;
+        el.classList.toggle('hunting', this.sharkTarget >= 0 && this.sharkTarget !== this.sharkPos);
+        el.classList.toggle('attacking', this.sharkTarget === this.sharkPos);
+        el.classList.toggle('active', !!this.sharkActive);
+        el.dataset.target = String(this.sharkTarget >= 0 ? this.sharkTarget : '');
+    }
+
     _createTileEl(tile, i, appear) {
         const el = document.createElement('div');
         el.className = 'tile' + (appear ? ' new' : '');
         el.dataset.value = tile.value;
         el.dataset.id = tile.id;
         el.dataset.glyph = this._tileGlyph(tile.value);
+
+        // Плитка-способность ⚡: глиф способности + метка, без числового значения
+        if (tile.ability) {
+            el.classList.add('ability-tile', 'ability-' + tile.ability);
+            el.dataset.ability = tile.ability;
+            el.innerHTML = '<span class="tile-glyph">' + this._abilityGlyph(tile.ability) + '</span>'
+                + '<span class="tile-num">' + this._abilityLabel(tile.ability) + '</span>';
+            return el;
+        }
 
         // Обитатель (глиф) крупным + компактное значение под ним.
         el.innerHTML = '<span class="tile-glyph">' + this._tileGlyph(tile.value) + '</span>'
@@ -941,6 +1435,15 @@ export default class Game {
         this._tileEls.set(tile.id, el);
         this.boardElement.appendChild(el);
         return el;
+    }
+
+    /** Глиф способности (для плиток-способностей ⚡). */
+    _abilityGlyph(kind) {
+        return { bomb: '💣', jelly: '🪼', crab: '🦀' }[kind] || '✨';
+    }
+    /** Короткая подпись способности (под глифом). */
+    _abilityLabel(kind) {
+        return { bomb: 'Взрыв', jelly: 'Прилив', crab: 'Краб' }[kind] || '?';
     }
 
     /** Обитатель океана для значения плитки (сложность растёт с числом). */

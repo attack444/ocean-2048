@@ -8,7 +8,7 @@ import { applyLevelWin, applyLevelGameOver, isLevelUnlocked } from './progress.j
 import { resolveConflict, mergeBoardSaves } from './cloud-sync.js';
 import { canRevive } from './rewards.js';
 import { comboReward, STREAK_THRESHOLD } from './combo.js';
-import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel } from './levels.js';
+import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel } from './levels.js';
 import { ACHIEVEMENTS, evaluateAchievements } from './achievements.js';
 import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, makeRng, seedFromDate } from './daily-puzzle.js';
 import { DEPTH_NODES, depthRewardFor, depthStatus, canClaimDepthReward, claimDepthReward, pendingDepthRewards } from './depths-map.js';
@@ -121,6 +121,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const threatIndicator = $('threat-indicator');
     const threatBarFill   = $('threat-bar-fill');
     const threatCount     = $('threat-count');
+
+    // «Акула-охотник» 🦈 (Фаза 4.5 «Глубина ядра») — индикатор
+    const sharkIndicator = $('shark-indicator');
+    const sharkBarFill   = $('shark-bar-fill');
+    const sharkCount     = $('shark-count');
 
     const gameModal      = $('game-modal');
     const modalIcon      = $('modal-icon');
@@ -627,6 +632,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         threatIndicator.classList.remove('sweep');
         void threatIndicator.offsetWidth;
         threatIndicator.classList.add('sweep');
+    }
+
+    /**
+     * Обновить индикатор «Акула-охотник»: отсчёт до появления/шага + сколько съедено.
+     * Пока акула не появилась — полоса показывает приближение появления;
+     * после появления — ходы до следующего шага, счётчик — съеденные плитки.
+     */
+    function updateSharkIndicator() {
+        if (!sharkIndicator) return;
+        const s = game ? game.getShark() : null;
+        if (!s) {
+            sharkIndicator.hidden = true;
+            return;
+        }
+        sharkIndicator.hidden = false;
+        if (s.pos === null) {
+            // Акула ещё не появилась: полная шкала = приближение появления
+            const ratio = Math.max(0, 1 - s.movesUntilStep / s.appearMoves);
+            if (sharkBarFill) sharkBarFill.style.width = (ratio * 100).toFixed(0) + '%';
+            if (sharkCount) sharkCount.textContent = String(Math.max(0, s.movesUntilStep));
+            sharkIndicator.classList.toggle('warning', s.movesUntilStep <= 1);
+        } else {
+            // Акула на доске: полная шкала = ходы до шага
+            const ratio = Math.max(0, 1 - s.movesUntilStep / s.stepInterval);
+            if (sharkBarFill) sharkBarFill.style.width = (ratio * 100).toFixed(0) + '%';
+            if (sharkCount) sharkCount.textContent = s.eaten > 0 ? String(s.eaten) : '–';
+            sharkIndicator.classList.toggle('warning', s.movesUntilStep <= 1);
+        }
+    }
+
+    /** Вспышка индикатора при появлении / шаге / укусе акулы. */
+    function flashShark() {
+        if (!sharkIndicator || sharkIndicator.hidden) return;
+        sharkIndicator.classList.remove('sweep');
+        void sharkIndicator.offsetWidth;
+        sharkIndicator.classList.add('sweep');
     }
 
     function updateHeader() {
@@ -1305,6 +1346,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             infinity:      state.infinity === true,
             tide:          tideConfigWithPerks(state.currentLevel),
             moves:         movesConfigForLevel(state.currentLevel),
+            shark:         sharkConfigForLevel(state.currentLevel),
+            abilities:     abilitiesConfigForLevel(state.currentLevel),
             // Ценность покупок: скин+тема дают +% очков, перк «Дух четвёрки» повышает шанс 4,
             // перк «Спокойные воды» отодвигает прилив на 1 ход.
             appearanceMultiplier: appearanceScoreMultiplier(state),
@@ -1346,6 +1389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 missionStats.moves = (missionStats.moves || 0) + 1;
                 updateTideIndicator();
                 updateThreatIndicator();
+                updateSharkIndicator();
                 renderMission();
             },
             onTide:  (swept) => {
@@ -1361,6 +1405,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const total = swept.reduce((acc, s) => acc + s.value, 0);
                 if (total > 0) showToast(`Водоворот унёс плитки (−${total})`, '🌪️');
                 else if (swept.length > 0) showToast('Водоворот очистил нижний ряд', '🌪️');
+            },
+            onSharkEat: (ev) => {
+                // Акула появилась / шагнула / укусила: вспышка индикатора + уведомление
+                flashShark();
+                if (typeof ev.idx === 'number' && typeof ev.value === 'number') {
+                    showToast(`🦈 Акула съела плитку ${ev.value}!`, '🦈');
+                } else if (typeof ev.spawn === 'number') {
+                    showToast('🦈 Акула вышла на охоту!', '🦈');
+                }
+            },
+            onAbility: (ev) => {
+                // Плитка-способность ⚡ активирована: эффект + уведомление
+                if (ev.kind === 'bomb') {
+                    showToast(`💣 Взрыв! Убрано ${ev.cleared.length} плиток`, '💣');
+                } else if (ev.kind === 'jelly') {
+                    showToast('🪼 Прилив заморожен на ход!', '🪼');
+                } else if (ev.kind === 'crab') {
+                    showToast(`🦀 Слияние в ${ev.value}!`, '🦀');
+                }
             },
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
@@ -1380,7 +1443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 missionStats.bestStreak = Math.max(missionStats.bestStreak, game.streak || 0);
                 renderMission();
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateSharkIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); },
             onTarget: (score) => {
                 // Бесконечный режим: цель достигнута — празднуем и продолжаем
                 if (state.sound !== false) playWin();
@@ -1449,6 +1512,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMoves();
         updateTideIndicator();
         updateThreatIndicator();
+        updateSharkIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск уровня — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -1477,6 +1541,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMoves();
         updateTideIndicator();
         updateThreatIndicator();
+        updateSharkIndicator();
         updateBoostBar();
         checkAchievements();
         // П. 1.19.3: перезапуск партии — игровой процесс снова активен.
@@ -1769,6 +1834,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             infinity:      false,
             tide:          null, // в головоломке — чистый 2048, без прилива
             moves:         null,
+            shark:         null, // и без акулы
+            abilities:     null, // и без плиток-способностей
             appearanceMultiplier: 1,
             fourChance:    0.1,
             // Общий сид: все последующие плитки выпадают детерминированно.
@@ -1786,6 +1853,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             },
             onTide:  null,
             onThreat: null,
+            onSharkEat: null,
+            onAbility: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
@@ -1847,6 +1916,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMoves();
         updateTideIndicator();
         updateThreatIndicator();
+        updateSharkIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск головоломки — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -2468,6 +2538,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateDoubloons();
         showToast(`Dev: +${amount} жемчужин 🦪`, '🦪');
         console.log(`🦪 Dev-режим: выдано ${amount} жемчужин (итого ${state.doubloons})`);
+    })();
+
+    // Dev-режим: ручное тестирование «Плиток-способностей» ⚡ (только localhost).
+    // window.__game — текущий экземпляр Game; window.__placeAbility(kind, idx)
+    // ставит плитку-способность на клетку idx (или на первую пустую, если idx
+    // опущен). В проде (не localhost) недоступно — как и applyDevGrant выше.
+    (function applyDevAbilityTools() {
+        const isLocal = /^localhost$|^127\.0\.0\.1$|^\[::1\]$/.test(location.hostname);
+        if (!isLocal) return;
+        Object.defineProperty(window, '__game', {
+            configurable: true,
+            get: () => game,
+        });
+        window.__placeAbility = (kind, idx) => {
+            if (!game || !game.abilities) {
+                return { ok: false, reason: 'механика выключена на этом уровне' };
+            }
+            if (!['bomb', 'jelly', 'crab'].includes(kind)) {
+                return { ok: false, reason: 'kind должен быть bomb | jelly | crab' };
+            }
+            let i = idx;
+            if (i === undefined) i = game.tiles.findIndex(t => t === null);
+            if (i < 0 || i >= game.tiles.length) return { ok: false, reason: 'клетка вне доски' };
+            game.tiles[i] = { id: game._nextTileId++, value: 2, ability: kind, justSpawned: true };
+            game.abilitySpawned++;
+            if (typeof game.render === 'function') game.render();
+            return { ok: true, idx: i, kind };
+        };
+        console.log('🛠️ Dev-режим: доступны window.__game и window.__placeAbility(kind, idx)');
     })();
 
     // Фаза 1: пузырьки-фон сразу (если анимации разрешены)

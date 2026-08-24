@@ -150,6 +150,16 @@
                 <span class="threat-count" id="threat-count">–</span>
             </div>
 
+            <!-- Индикатор «Акула-охотник» 🦈 (Фаза 4.5: «Глубина ядра»).
+                 Показывает отсчёт до появления акулы / до её шага. Когда акула на доске,
+                 полоса отражает ходы до следующего шага, а счётчик — сколько плиток съедено. -->
+            <div id="shark-indicator" class="shark-indicator" hidden>
+                <span class="shark-emoji" aria-hidden="true">🦈</span>
+                <span class="shark-label">Акула</span>
+                <span class="shark-bar" aria-hidden="true"><span class="shark-bar-fill" id="shark-bar-fill"></span></span>
+                <span class="shark-count" id="shark-count">–</span>
+            </div>
+
             <div id="board" class="board size-4"></div>
 
             <!-- D-pad — видим только на тач-устройствах -->

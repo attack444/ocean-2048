@@ -396,6 +396,44 @@ main {
     transform: translate(var(--tx, 0), var(--ty, 0));
 }
 
+/* ======================== Акула-охотник 🦈 ========================
+   Элемент акулы поверх плиток: позиционируется по клетке через --tx/--ty. */
+.shark {
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 3;               /* выше плиток (z-index: 1) */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.9rem;
+    line-height: 1;
+    pointer-events: none;
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,.55));
+    transition: transform .32s ease;
+    transform: translate(var(--tx, 0), var(--ty, 0));
+    will-change: transform;
+    animation: shark-bob 2.4s ease-in-out infinite;
+}
+@keyframes shark-bob {
+    0%, 100% { margin-top: 0; }
+    50%      { margin-top: -3px; }
+}
+/* Акула нацелилась на жертву — красное свечение */
+.shark.hunting { filter: drop-shadow(0 0 8px rgba(255,80,80,.85)) drop-shadow(0 3px 4px rgba(0,0,0,.55)); }
+/* Акула атакует (на клетке жертвы) — пульс */
+.shark.attacking { animation: shark-attack .5s ease-in-out; }
+@keyframes shark-attack {
+    0%   { transform: translate(var(--tx,0), var(--ty,0)) scale(1); }
+    40%  { transform: translate(var(--tx,0), var(--ty,0)) scale(1.35); }
+    100% { transform: translate(var(--tx,0), var(--ty,0)) scale(1); }
+}
+/* Мгновенная вспышка после шага/укуса (класс active на один кадр) */
+.shark.active { animation: shark-flash .35s ease; }
+@keyframes shark-flash {
+    0%   { opacity: .45; }
+    100% { opacity: 1; }
+}
+
 /* Обитатель (глиф) — крупный, с лёгкой тенью для читаемости */
 .tile .tile-glyph {
     font-size: 1.5em;
@@ -450,6 +488,37 @@ main {
 .tile[data-value="2048"] { background: var(--t2048-bg); color: var(--t2048-c); font-weight: 900; }
 .tile[data-value="4096"] { background: var(--t4096-bg); color: var(--t4096-c); }
 .tile[data-value="8192"] { background: var(--t8192-bg); color: var(--t8192-c); }
+
+/* ======================== Плитки-способности ⚡ ========================
+   Редкие плитки, которые игрок активирует тапом/кликом (не сливаются).
+   Отличаются рамкой, курсором и лёгкой «дышащей» анимацией-приглашением. */
+.tile.ability-tile {
+    cursor: pointer;
+    border: 2px dashed rgba(255,255,255,.75);
+    background: linear-gradient(135deg, #6a3de8, #3b1e8f);
+    color: var(--white, #fff);
+    box-shadow: 0 0 12px rgba(124,77,255,.55), inset 0 2px 4px rgba(255,255,255,.3);
+    animation: ability-pulse 1.8s ease-in-out infinite;
+}
+.tile.ability-tile .tile-glyph { font-size: 1.6em; }
+.tile.ability-tile .tile-num   { font-size: .72em; opacity: .95; }
+@keyframes ability-pulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(124,77,255,.45), inset 0 2px 4px rgba(255,255,255,.3); }
+    50%      { box-shadow: 0 0 20px rgba(124,77,255,.85), inset 0 2px 4px rgba(255,255,255,.4); }
+}
+/* Типы способностей: лёгкая цветовая дифференциация */
+.tile.ability-tile.ability-bomb  { background: linear-gradient(135deg, #e53935, #8e1c1c); }
+.tile.ability-tile.ability-jelly { background: linear-gradient(135deg, #4db6ac, #17635b); }
+.tile.ability-tile.ability-crab  { background: linear-gradient(135deg, #ff9800, #b26500); }
+/* Адаптация размера под крупные доски */
+.board.size-5 .tile.ability-tile,
+.board.size-6 .tile.ability-tile { font-size: 1.05rem; }
+.board.size-6 .tile.ability-tile .tile-num { font-size: .62em; }
+/* Активирована (одноразово) — быстрое исчезновение */
+.tile.ability-tile.used { animation: ability-used .25s ease forwards; }
+@keyframes ability-used {
+    to { opacity: 0; transform: translate(var(--tx,0), var(--ty,0)) scale(.4); }
+}
 
 /* ======================== Частицы слияния (Фаза 1) ======================== */
 .particles-layer {
@@ -1951,6 +2020,63 @@ body.theme-light .tide-count     { color: #007a91; }
 }
 body.theme-light .threat-indicator { background: linear-gradient(90deg, #e9dcf7, #dcc6f2); border-color: #9c4dcc; }
 body.theme-light .threat-count     { color: #6a1b9a; }
+
+/* ==================================================================
+   ИНДИКАТОР «АКУЛА-ОХОТНИК» (Фаза 4.5 «Глубина ядра»)
+   Показывает отсчёт до появления акулы / до её шага; счётчик — сколько
+   плиток съедено. Красная палитра — акула активна и опасна.
+   ================================================================== */
+.shark-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 500px;
+    margin: 0 auto 8px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, rgba(60,15,25,.92), rgba(100,25,35,.88));
+    border: 1px solid rgba(255,120,120,.3);
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+.shark-emoji { font-size: 1.05rem; }
+.shark-label { white-space: nowrap; }
+.shark-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.12);
+    overflow: hidden;
+}
+.shark-bar-fill {
+    display: block;
+    height: 100%;
+    width: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #ff8a6b, #ef5350);
+    transition: width .3s ease;
+}
+.shark-count {
+    min-width: 30px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: bold;
+    color: #ffe0e0;
+}
+/* Акула близко к шагу/укусу — тревожный оттенок */
+.shark-indicator.warning .shark-bar-fill { background: linear-gradient(90deg, #ffd740, #ff3d3d); }
+.shark-indicator.warning .shark-count   { color: #ffd740; }
+/* Вспышка при появлении / шаге / укусе акулы */
+.shark-indicator.sweep { animation: shark-sweep .7s ease; }
+.shark-indicator[hidden] { display: none; }
+@keyframes shark-sweep {
+    0%   { border-color: rgba(255,120,120,.3); }
+    30%  { border-color: rgba(255,60,60,.95); box-shadow: 0 0 14px rgba(255,60,60,.6); }
+    100% { border-color: rgba(255,120,120,.3); }
+}
+body.theme-light .shark-indicator { background: linear-gradient(90deg, #fde0e0, #f8cccc); border-color: #e53935; }
+body.theme-light .shark-count     { color: #b71c1c; }
 
 /* ==================================================================
    ПАНЕЛЬ БУСТОВ

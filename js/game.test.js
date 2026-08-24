@@ -1028,3 +1028,571 @@ describe('Game moves-as-resource (Ходы как ресурс 🧮)', () => {
         assert.equal(g.tiles[0].value, 2);
     });
 });
+
+describe('Game shark (Акула-охотник 🦈)', () => {
+    function makeSharkGame(opts = {}) {
+        const board = stubBoard();
+        const addTile = Game.prototype._addNewTile;
+        const render = Game.prototype.render;
+        const animate = Game.prototype._animateMove;
+        Game.prototype._addNewTile = function () {};
+        Game.prototype.render = function () {};
+        Game.prototype._animateMove = function (moves, cb) { cb(); };
+        const game = new Game({
+            boardElement: board,
+            size: opts.size || 4,
+            target: opts.target || 2048,
+            tide: opts.tide || null,
+            moves: opts.moves || null,
+            shark: Object.assign(
+                { enabled: true, appearMoves: 3, stepInterval: 2, targetThreshold: 8, protectChance: 0 },
+                opts.shark
+            ),
+            random: opts.random,
+        });
+        Game.prototype._addNewTile = addTile;
+        Game.prototype.render = render;
+        Game.prototype._animateMove = animate;
+        game.tiles = new Array(game.size * game.size).fill(null);
+        game.score = 0;
+        return game;
+    }
+
+    it('is disabled when no shark config is passed', () => {
+        const g = makeGame();
+        assert.equal(g.getShark(), null);
+        assert.equal(g.sharkPos, null);
+    });
+
+    it('normalizes shark config and starts the countdown to appearance', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 3, stepInterval: 2, targetThreshold: 8 } });
+        assert.equal(g.sharkPos, null);
+        assert.equal(g.sharkMovesUntilStep, 3);
+        const s = g.getShark();
+        assert.equal(s.enabled, true);
+        assert.equal(s.appearMoves, 3);
+        assert.equal(s.movesUntilStep, 3);
+        assert.equal(s.pos, null);
+    });
+
+    it('spawns the shark on a random empty cell after the appear countdown', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 1, stepInterval: 2, targetThreshold: 8 } });
+        // Фиксированный RNG: спавн выбирает первую пустую клетку
+        g._rng = () => 0;
+        g.tiles = [
+            { id: 1, value: 4 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        const spawns = [];
+        g.onSharkEat = (e) => { if (e.spawn !== undefined) spawns.push(e.spawn); };
+        g._spawnShark();
+        // Клетка 0 занята плиткой 4 — акула появляется на первой свободной (индекс 1)
+        assert.equal(g.sharkPos, 1);
+        assert.equal(g.sharkMovesUntilStep, 2); // интервал шага
+        assert.deepEqual(spawns, [1]);
+    });
+
+    it('ticks the appear countdown on every move and spawns through handleMove', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 1, stepInterval: 2, targetThreshold: 8 } });
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g._rng = () => 0; // спавн всегда выбирает первую пустую клетку
+        g.tiles = [
+            { id: 1, value: 4 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        assert.equal(g.sharkMovesUntilStep, 1);
+        g.handleMove('down'); // ход реальный: плитка 4 вниз; отсчёт 1→0 → спавн
+        // После хода плитка 4 на индексе 12, первая пустая клетка — индекс 0
+        assert.equal(g.sharkPos, 0);
+        assert.equal(g.sharkMovesUntilStep, 2);
+    });
+
+    it('moves toward a target tile and eats it when reached', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 0, stepInterval: 1, targetThreshold: 8, protectChance: 0 } });
+        g.sharkPos = 0; // акула в левом верхнем углу
+        g.sharkMovesUntilStep = 1;
+        g._rng = () => 0.999; // никогда не «не замечает» цель
+        g.tiles = [
+            null, null, null, null,
+            null, null, null, null,
+            { id: 1, value: 16 }, null, null, null,
+            null, null, null, null,
+        ];
+        // Цель — 16 (индекс 8), путь чистый: первый шаг — только движение 0 → 4
+        g._sharkStep();
+        assert.equal(g.sharkPos, 4);
+        assert.equal(g.sharkTarget, 8);
+        assert.equal(g.tiles[8] !== null, true); // плитка пока не съедена — акула только подошла
+        assert.equal(g.sharkEaten, 0);
+        // Шаг 2: акула шагает на клетку с целью и съедает её
+        g.sharkMovesUntilStep = 1;
+        g._sharkStep();
+        assert.equal(g.sharkPos, 8);
+        assert.equal(g.tiles[8], null);
+        assert.equal(g.sharkEaten, 1);
+        assert.equal(g.sharkEatenValue, 16);
+    });
+
+    it('eats a tile in its path before reaching the target', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 0, stepInterval: 1, targetThreshold: 8, protectChance: 0 } });
+        g.sharkPos = 0;
+        g.sharkMovesUntilStep = 1;
+        g._rng = () => 0.999;
+        g.tiles = [
+            null, null, null, null,
+            { id: 1, value: 4 }, null, null, null,
+            null, { id: 2, value: 16 }, null, null,
+            null, null, null, null,
+        ];
+        // Цель — 16 (индекс 9); по пути (индекс 4) стоит плитка 4 — жертва по пути
+        g._sharkStep();
+        assert.equal(g.sharkPos, 4);
+        assert.equal(g.tiles[4], null); // жертва по пути съедена
+        assert.equal(g.sharkEaten, 1);
+        assert.equal(g.sharkEatenValue, 4);
+    });
+
+    it('ignores tiles below the target threshold', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 0, stepInterval: 1, targetThreshold: 16, protectChance: 0 } });
+        g.sharkPos = 0;
+        g.sharkMovesUntilStep = 1;
+        g.tiles = [
+            null, null, null, null,
+            { id: 1, value: 8 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g._sharkStep();
+        // Целей >= 16 нет — акула остаётся на месте, ничего не ест
+        assert.equal(g.sharkPos, 0);
+        assert.equal(g.sharkTarget, -1);
+        assert.equal(g.sharkEaten, 0);
+    });
+
+    it('protectChance can make the shark miss its target (stays in place)', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 0, stepInterval: 1, targetThreshold: 8, protectChance: 0.5 } });
+        g.sharkPos = 0;
+        g.sharkMovesUntilStep = 1;
+        g._rng = () => 0.1; // < 0.5 → «не заметила» цель
+        g.tiles = [
+            null, null, null, null,
+            { id: 1, value: 16 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g._sharkStep();
+        assert.equal(g.sharkPos, 0); // не двинулась
+        assert.equal(g.sharkTarget, 4); // цель всё же выбрана (для подсветки UI)
+        assert.equal(g.sharkEaten, 0);
+        assert.equal(g.sharkActive, true);
+    });
+
+    it('undo restores shark position, countdown and eaten counters', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 0, stepInterval: 2, targetThreshold: 8, protectChance: 0 } });
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.sharkPos = 5;
+        g.sharkMovesUntilStep = 1;
+        g.sharkTarget = 9;
+        g.sharkEaten = 2;
+        g.sharkEatenValue = 24;
+        g.tiles = [
+            null, null, null, null,
+            null, { id: 1, value: 16 }, null, null,
+            null, null, null, null,
+            { id: 2, value: 8 }, null, null, null,
+        ];
+        g.handleMove('up'); // ход двигает 16 и 8; акула: отсчёт 1→0 → шаг
+        assert.notEqual(g.sharkPos, 5); // акула сдвинулась
+        g.undo();
+        assert.equal(g.sharkPos, 5);
+        assert.equal(g.sharkTarget, 9);
+        assert.equal(g.sharkEaten, 2);
+        assert.equal(g.sharkEatenValue, 24);
+        assert.equal(g.sharkActive, false);
+    });
+
+    it('resets shark state in init', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 3, stepInterval: 2, targetThreshold: 8 } });
+        g.render = () => {};
+        g.sharkPos = 4;
+        g.sharkTarget = 8;
+        g.sharkEaten = 5;
+        g.sharkEatenValue = 40;
+        g.sharkMovesUntilStep = 1;
+        g.init();
+        assert.equal(g.sharkPos, null);
+        assert.equal(g.sharkTarget, -1);
+        assert.equal(g.sharkEaten, 0);
+        assert.equal(g.sharkEatenValue, 0);
+        assert.equal(g.sharkMovesUntilStep, 3); // снова отсчёт до появления
+    });
+
+    it('persists shark state across loadState/saveState round-trip', () => {
+        const g = makeSharkGame({ shark: { appearMoves: 3, stepInterval: 2, targetThreshold: 8 } });
+        g.sharkPos = 6;
+        g.sharkTarget = 10;
+        g.sharkEaten = 3;
+        g.sharkEatenValue = 32;
+        g.sharkMovesUntilStep = 2;
+        const state = g.getState();
+        assert.equal(state.sharkPos, 6);
+        assert.equal(state.sharkTarget, 10);
+        assert.equal(state.sharkEaten, 3);
+        assert.equal(state.sharkEatenValue, 32);
+
+        const g2 = makeSharkGame({ shark: { appearMoves: 3, stepInterval: 2, targetThreshold: 8 } });
+        g2.render = () => {};
+        g2.loadState(state);
+        assert.equal(g2.sharkPos, 6);
+        assert.equal(g2.sharkTarget, 10);
+        assert.equal(g2.sharkEaten, 3);
+        assert.equal(g2.sharkEatenValue, 32);
+        assert.equal(g2.sharkMovesUntilStep, 2);
+    });
+
+    it('does not tick when shark is disabled (regression check)', () => {
+        const g = makeGame();
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, { id: 2, value: 8 }, null, null,
+        ];
+        g.handleMove('left');
+        assert.equal(g.sharkPos, null);
+        assert.equal(g.sharkEaten, 0);
+        assert.equal(g.getShark(), null);
+        // Обычная игра не затронута — плитки на месте
+        assert.equal(g.tiles.filter(Boolean).length, 2);
+    });
+});
+
+describe('Game abilities (Плитки-способности ⚡)', () => {
+    function makeAbilityGame(opts = {}) {
+        const board = stubBoard();
+        const addTile = Game.prototype._addNewTile;
+        const render = Game.prototype.render;
+        const animate = Game.prototype._animateMove;
+        Game.prototype._addNewTile = function () {};
+        Game.prototype.render = function () {};
+        Game.prototype._animateMove = function (moves, cb) { cb(); };
+        const game = new Game({
+            boardElement: board,
+            size: opts.size || 4,
+            target: opts.target || 2048,
+            tide: opts.tide || null,
+            moves: opts.moves || null,
+            shark: opts.shark || null,
+            abilities: Object.assign(
+                { enabled: true, spawnChance: 0, types: ['bomb', 'jelly', 'crab'] },
+                opts.abilities
+            ),
+            random: opts.random,
+        });
+        Game.prototype._addNewTile = addTile;
+        Game.prototype.render = render;
+        Game.prototype._animateMove = animate;
+        game.tiles = new Array(game.size * game.size).fill(null);
+        game.score = 0;
+        return game;
+    }
+
+    it('is disabled when no abilities config is passed', () => {
+        const g = makeGame();
+        assert.equal(g.getAbilities(), null);
+        assert.equal(g.findAbility(), -1);
+        g._rng = () => 0.99;
+        g.tiles = new Array(16).fill(null);
+        Game.prototype._addNewTile.call(g);
+        assert.equal(g.abilitySpawned, 0);
+        assert.equal(g.tiles.filter(Boolean).length, 1);
+        const t = g.tiles[15]; // 0.99 → последняя пустая клетка
+        assert.equal(t.value, 2);
+        assert.equal(t.ability, undefined);
+    });
+
+    it('normalizes the config and reports state for the UI', () => {
+        const g = makeAbilityGame({ abilities: { spawnChance: 2.5 } });
+        assert.equal(g.getAbilities().spawnChance, 1);
+        const g2 = makeAbilityGame({ abilities: { spawnChance: -1 } });
+        assert.equal(g2.getAbilities().spawnChance, 0);
+        const g3 = makeAbilityGame({ abilities: { types: ['bomb', 'nope'] } });
+        assert.deepEqual(g3.getAbilities().types, ['bomb']);
+        const g4 = makeAbilityGame({ abilities: { types: ['nope'] } });
+        assert.deepEqual(g4.getAbilities().types, ['bomb', 'jelly', 'crab']);
+        const g5 = makeAbilityGame({ abilities: { spawnChance: 0.03 } });
+        assert.equal(g5.getAbilities().spawned, 0);
+        assert.equal(g5.getAbilities().used, 0);
+        assert.equal(g5.getAbilities().cleared, 0);
+        assert.equal(g5.getAbilities().freeze, 0);
+    });
+
+    it('spawns an ability tile instead of a normal one when the chance hits', () => {
+        const g = makeAbilityGame({ abilities: { spawnChance: 1 } });
+        g._rng = () => 0; // первая пустая клетка + шанс 100%
+        g.tiles = new Array(16).fill(null);
+        g._addNewTile();
+        assert.equal(g.tiles.filter(Boolean).length, 1);
+        const t = g.tiles[0];
+        assert.equal(t.value, 2);
+        assert.equal(t.ability, 'bomb'); // types[0]
+        assert.equal(g.abilitySpawned, 1);
+        assert.equal(g.findAbility(), 0);
+    });
+
+    it('spawns a normal tile when the chance misses', () => {
+        const g = makeAbilityGame({ abilities: { spawnChance: 0 } });
+        g._rng = () => 0.99;
+        g.tiles = new Array(16).fill(null);
+        g._addNewTile();
+        const t = g.tiles[15]; // последняя пустая клетка
+        assert.equal(t.ability, undefined);
+        assert.equal(t.value, 2);
+        assert.equal(g.abilitySpawned, 0);
+    });
+
+    it('does not merge ability tiles with equal-value normal tiles (soft walls)', () => {
+        const g = makeAbilityGame();
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            null, null, { id: 1, value: 2, ability: 'bomb' }, { id: 2, value: 2 },
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left');
+        assert.equal(g.score, 0); // слияния не было
+        assert.equal(g.tiles[0].ability, 'bomb');
+        assert.equal(g.tiles[1].value, 2);
+        assert.equal(g.tiles[1].ability, undefined);
+        assert.equal(g.tiles[2], null);
+        assert.equal(g.tiles[3], null);
+    });
+
+    it('still merges two equal normal tiles (regression)', () => {
+        const g = makeAbilityGame();
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            null, null, { id: 1, value: 2 }, { id: 2, value: 2 },
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left');
+        assert.equal(g.score, 4);
+        assert.equal(g.tiles[0].value, 4);
+        assert.equal(g.tiles[1], null);
+    });
+
+    it('bomb clears its row and column (cross) and reports via onAbility', () => {
+        const g = makeAbilityGame();
+        g.render = () => {};
+        const calls = [];
+        g.onAbility = (e) => calls.push(e);
+        g.tiles = [
+            null, null, null, null,
+            null, { id: 1, value: 2, ability: 'bomb' }, { id: 2, value: 4 }, null,
+            null, { id: 3, value: 8 }, null, null,
+            null, null, null, { id: 4, value: 16 },
+        ];
+        const res = g.activateAbility(5);
+        assert.equal(res.kind, 'bomb');
+        assert.equal(res.cleared.length, 3);
+        assert.equal(g.tiles[5], null);   // сама бомба убрана
+        assert.equal(g.tiles[6], null);   // 4 в строке
+        assert.equal(g.tiles[9], null);   // 8 в столбце
+        assert.equal(g.tiles[15] !== null, true); // 16 вне креста цела
+        assert.equal(g.abilityUsed, 1);
+        assert.equal(g.abilityCleared, 3);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].kind, 'bomb');
+    });
+
+    it('jelly freezes the tide for the next move', () => {
+        const g = makeAbilityGame({ tide: { enabled: true, interval: 1, depth: 1, scoreReturn: 0 } });
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            null, null, null, null,
+            null, { id: 1, value: 2, ability: 'jelly' }, null, null,
+            null, null, null, null,
+            null, { id: 2, value: 8 }, null, null,
+        ];
+        const res = g.activateAbility(5);
+        assert.equal(res.freeze, 1);
+        assert.equal(g.jellyFreeze, 1);
+
+        // Ход: прилив пропущен (заморозка), отсчёт не двигался
+        g.handleMove('left');
+        assert.equal(g.jellyFreeze, 0);
+        assert.equal(g.tideSwept, 0);
+        assert.equal(g.tideMovesUntilRise, 1);
+
+        // Следующий ход — прилив срабатывает как обычно
+        g.handleMove('right');
+        assert.equal(g.tideSwept, 1);
+        assert.equal(g.tiles.some(t => t && t.value === 8), false);
+    });
+
+    it('crab merges the two largest non-ability tiles into their sum', () => {
+        const g = makeAbilityGame();
+        g.render = () => {};
+        g.tiles = [
+            null, { id: 1, value: 4 }, { id: 2, value: 8 }, null,
+            null, { id: 3, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, { id: 4, value: 2, ability: 'crab' },
+        ];
+        const res = g.activateAbility(15);
+        assert.equal(res.kind, 'crab');
+        assert.equal(res.value, 12);
+        assert.deepEqual(res.from.slice().sort(), [1, 2]);
+        assert.equal(res.to, 2);
+        assert.equal(g.tiles[2].value, 12);
+        assert.equal(g.tiles[1], null);
+        assert.equal(g.tiles[5].value, 2); // третья плитка не тронута
+        assert.equal(g.tiles[15], null);   // сам краб убран
+        assert.equal(g.abilityUsed, 1);
+    });
+
+    it('crab does nothing when fewer than two regular tiles exist', () => {
+        const g = makeAbilityGame();
+        g.render = () => {};
+        g.tiles = [
+            null, { id: 1, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, { id: 2, value: 2, ability: 'crab' },
+        ];
+        const res = g.activateAbility(15);
+        assert.equal(res, null);
+        assert.equal(g.tiles[15] !== null, true); // краб остаётся
+        assert.equal(g.abilityUsed, 0);
+    });
+
+    it('undo restores ability tiles and the jelly freeze counter', () => {
+        const g = makeAbilityGame({ tide: { enabled: true, interval: 2, depth: 1, scoreReturn: 0 } });
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            { id: 1, value: 2, ability: 'jelly' }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, { id: 2, value: 8 }, null, null,
+        ];
+        g.jellyFreeze = 1;
+        g.handleMove('up');
+        assert.equal(g.jellyFreeze, 0);
+        g.undo();
+        assert.equal(g.jellyFreeze, 1);
+        assert.equal(g.tiles[0].ability, 'jelly');
+        assert.equal(g.tiles[0].value, 2);
+    });
+
+    it('persists ability tiles and counters across loadState/saveState round-trip', () => {
+        const g = makeAbilityGame();
+        g.render = () => {};
+        g.tiles = [
+            { id: 1, value: 2, ability: 'bomb' }, null, null, null,
+            null, { id: 2, value: 8 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.jellyFreeze = 1;
+        g.abilitySpawned = 3;
+        g.abilityUsed = 1;
+        g.abilityCleared = 5;
+        const state = g.getState();
+        assert.equal(state.tiles[0].ability, 'bomb');
+        assert.equal(state.jellyFreeze, 1);
+        assert.equal(state.abilitySpawned, 3);
+
+        const g2 = makeAbilityGame();
+        g2.render = () => {};
+        g2.loadState(state);
+        assert.equal(g2.tiles[0].ability, 'bomb');
+        assert.equal(g2.jellyFreeze, 1);
+        assert.equal(g2.abilitySpawned, 3);
+        assert.equal(g2.abilityUsed, 1);
+        assert.equal(g2.abilityCleared, 5);
+    });
+
+    it('an unactivated ability tile is a lifeline — no game over while it exists', () => {
+        const g = makeAbilityGame();
+        // Полная доска без ходов (шахматный узор 2/4), способностей нет
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 2 }, { id: 4, value: 4 },
+            { id: 5, value: 4 }, { id: 6, value: 2 }, { id: 7, value: 4 }, { id: 8, value: 2 },
+            { id: 9, value: 2 }, { id: 10, value: 4 }, { id: 11, value: 2 }, { id: 12, value: 4 },
+            { id: 13, value: 4 }, { id: 14, value: 2 }, { id: 15, value: 4 }, { id: 16, value: 2 },
+        ];
+        assert.equal(g._checkGameOver(), true); // без способности — конец игры
+        g.tiles[15] = { id: 16, value: 2, ability: 'bomb' };
+        assert.equal(g._checkGameOver(), false); // способность — «спасательный круг»
+    });
+
+    it('activateAbility returns null for non-ability tiles and while busy/game-over/paused', () => {
+        const g = makeAbilityGame();
+        g.render = () => {};
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            { id: 2, value: 2, ability: 'bomb' }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        assert.equal(g.activateAbility(0), null); // не способность
+        g.gameOver = true;
+        assert.equal(g.activateAbility(4), null);
+        g.gameOver = false;
+        g.paused = true;
+        assert.equal(g.activateAbility(4), null);
+        g.paused = false;
+        g._busy = true;
+        assert.equal(g.activateAbility(4), null);
+        assert.equal(g.tiles[4].ability, 'bomb'); // плитка не тронута
+    });
+
+    it('findAbility returns the first ability tile index or -1', () => {
+        const g = makeAbilityGame();
+        g.tiles = new Array(16).fill(null);
+        assert.equal(g.findAbility(), -1);
+        g.tiles[7] = { id: 1, value: 2, ability: 'crab' };
+        g.tiles[10] = { id: 2, value: 2, ability: 'jelly' };
+        assert.equal(g.findAbility(), 7);
+    });
+
+    it('a normal game without abilities is unaffected (regression)', () => {
+        const g = makeGame();
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, { id: 2, value: 8 }, null, null,
+        ];
+        g.handleMove('left');
+        assert.equal(g.getAbilities(), null);
+        assert.equal(g.abilitySpawned, 0);
+        assert.equal(g.jellyFreeze, 0);
+        assert.equal(g.tiles.filter(Boolean).length, 2);
+    });
+});

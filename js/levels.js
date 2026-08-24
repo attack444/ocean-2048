@@ -18,10 +18,14 @@ export const LEVELS = [
       moves: { tideStep: 1, maxWithoutMerge: 5, depth: 1 } },
     { id: 6, name: 'Акула',          rank: '🦈',   size: 5, target: 4096,
       tide: { interval: 8,  depth: 2, scoreReturn: 0.5, warning: 2 },
-      moves: { tideStep: 1, maxWithoutMerge: 4, depth: 1 } },
+      moves: { tideStep: 1, maxWithoutMerge: 4, depth: 1 },
+      shark: { appearMoves: 6, stepInterval: 3, targetThreshold: 32, protectChance: 0.2 },
+      abilities: { spawnChance: 0.03 } },
     { id: 7, name: 'Хозяин Моря',    rank: '👑',   size: 6, target: 4096,
       tide: { interval: 7,  depth: 2, scoreReturn: 0.5, warning: 2 },
-      moves: { tideStep: 2, maxWithoutMerge: 3, depth: 2 } },
+      moves: { tideStep: 2, maxWithoutMerge: 3, depth: 2 },
+      shark: { appearMoves: 5, stepInterval: 2, targetThreshold: 32, protectChance: 0.15 },
+      abilities: { spawnChance: 0.04 } },
 ];
 
 /** Конфиг прилива для уровня (null — прилив выключен на этом уровне). */
@@ -32,6 +36,16 @@ export function tideConfigForLevel(id) {
 /** Конфиг «Ходы как ресурс» для уровня (null — механика выключена). */
 export function movesConfigForLevel(id) {
     return levelById(id).moves || null;
+}
+
+/** Конфиг «Акула-охотник» для уровня (null — механика выключена). */
+export function sharkConfigForLevel(id) {
+    return levelById(id).shark || null;
+}
+
+/** Конфиг «Плитки-способности» для уровня (null — механика выключена). */
+export function abilitiesConfigForLevel(id) {
+    return levelById(id).abilities || null;
 }
 
 /**
