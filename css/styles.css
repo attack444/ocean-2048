@@ -2207,6 +2207,56 @@ body.theme-light .shark-count     { color: #b71c1c; }
 }
 .ch-card .ch-claim:hover { filter: brightness(1.1); }
 
+/* ── Блок «Еженедельный челлендж» 📅 (раз в неделю, пн–вс) ── */
+.weekly-block {
+    background: linear-gradient(135deg, rgba(12,56,80,.5), rgba(10,42,60,.45));
+    border: 2px solid rgba(80,200,255,.45);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(80,200,255,.06);
+    position: relative;
+    overflow: hidden;
+}
+.weekly-block::before {
+    content: '📅';
+    position: absolute;
+    right: -8px;
+    bottom: -14px;
+    font-size: 5rem;
+    opacity: .1;
+    pointer-events: none;
+}
+.ch-week {
+    color: rgba(180,230,255,.85);
+    font-size: .75rem;
+    font-weight: bold;
+    white-space: nowrap;
+    letter-spacing: .3px;
+}
+.weekly-card {
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    background: rgba(0,0,0,.18);
+}
+.weekly-card .ch-goal { font-size: .85rem; color: rgba(255,255,255,.9); margin-bottom: 4px; }
+.weekly-card .ch-goal strong { color: var(--gold-light); }
+.weekly-card .ch-moves { font-size: .72rem; color: rgba(255,255,255,.65); margin-bottom: 2px; }
+.weekly-card .ch-reward { font-size: .72rem; color: #ffd740; margin-bottom: 8px; }
+.weekly-card.done {
+    border-color: rgba(76,175,80,.6);
+    background: rgba(76,175,80,.1);
+}
+.weekly-card .weekly-status {
+    font-size: .72rem;
+    font-weight: bold;
+    color: #81c784;
+    margin-bottom: 8px;
+}
+.weekly-card .btn { width: 100%; }
+
 /* ==================================================================
    ПАНЕЛЬ БУСТОВ
    ================================================================== */

@@ -20,6 +20,9 @@ import {
 } from './challenge.js';
 import { claimDailyLogin, dailyLoginInfo } from './daily-login.js';
 import {
+    weeklyInfo, ensureWeekly, recordWeeklyResult, claimWeeklyReward,
+} from './weekly.js';
+import {
     getShopItem, itemsByType, ownsItem, buyItem, useBoost, boostCount, ownsPerk,
     applyCoinReward, effectiveUndoLimit,
     appearanceScoreMultiplier, appearanceBonusPercent,
@@ -70,6 +73,8 @@ function loadState() {
         dailyCounters: { moves: 0, merges: 0, wins: 0, hints: 0, undos: 0 },
         // Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель» — результаты по уровням
         challenges: {},
+        // Еженедельный челлендж 📅: одна задача на неделю (пн–вс)
+        weekly: { week: '', done: false, bestScore: 0, bestMoves: 0, claimed: false },
         // Реклама: кулдаун interstitial
         lastAdTime: 0,
         // Фаза 2: одноразовые соц-бонусы за добавление в избранное / на главный экран
@@ -143,6 +148,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const chGrid   = $('ch-grid');
     const chDesc   = $('ch-desc');
     const chBadge  = $('ch-badge');
+
+    // Блок «Еженедельный челлендж» 📅 на карте уровней
+    const weeklyBlock  = $('weekly-block');
+    const weeklyWeek   = $('weekly-week');
+    const weeklyDesc   = $('weekly-desc');
+    const weeklyCard   = $('weekly-card');
+    const weeklyTarget = $('weekly-target');
+    const weeklyMoves  = $('weekly-moves');
+    const weeklyReward = $('weekly-reward');
+    const weeklyPlay   = $('weekly-play-btn');
 
     const gameModal      = $('game-modal');
     const modalIcon      = $('modal-icon');
@@ -322,11 +337,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let state = loadState();
     ensureChallenges(state); // Режим «Челлендж» ⏱️: гарантируем записи по уровням
+    ensureWeekly(state);     // Еженедельный челлендж 📅: гарантируем запись текущей недели
     let game  = null;
     let lastScore = 0;
     let cloudSaveTimer = null;
     // Режим «Челлендж» ⏱️: активна ли сейчас партия с лимитом ходов
     let challengeActive = false;
+    // Еженедельный челлендж 📅: активна ли сейчас партия недельного челленджа
+    let weeklyActive = false;
     // «Спасение» после game over: счётчик использований в текущей партии,
     // защита от двойного нажатия и отложенный interstitial (отменяется при спасении)
     let reviveCount = 0;
@@ -690,10 +708,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         sharkIndicator.classList.add('sweep');
     }
 
-    /** Обновить индикатор «Челлендж» ⏱️: цель и сколько ходов осталось из лимита. */
+    /** Обновить индикатор «Челлендж» ⏱️/📅: цель и сколько ходов осталось из лимита. */
     function updateChallengeIndicator() {
         if (!challengeIndicator) return;
-        const ch = challengeActive ? challengeForLevel(state.currentLevel) : null;
+        // Недельный челлендж 📅 или челлендж уровня ⏱️ — индикатор общий.
+        let ch = null;
+        if (weeklyActive) {
+            const w = weeklyInfo(state);
+            ch = { target: w.target, movesLimit: w.movesLimit };
+        } else if (challengeActive) {
+            ch = challengeForLevel(state.currentLevel);
+        }
         if (!ch) {
             challengeIndicator.hidden = true;
             return;
@@ -1370,6 +1395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         reviveCount = 0;
         reviveBusy = false;
         challengeActive = false; // обычный уровень — не «Челлендж»
+        weeklyActive = false;    // и не «Еженедельный челлендж» 📅
         // Статистика партии для сюжетной миссии 🎯 — сбрасывается при запуске уровня
         missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         saveState(state);
@@ -1828,6 +1854,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderDepthsMap();
         renderDailyPuzzle();
         renderChallenge();
+        renderWeekly();
         showModal(levelModal);
     }
 
@@ -1863,6 +1890,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         reviveCount = 0;
         reviveBusy = false;
         challengeActive = false; // головоломка — не «Челлендж»
+        weeklyActive = false;    // и не «Еженедельный челлендж» 📅
         saveState(state);
         updateHeader();
         // В ежедневной головоломке сюжетной миссии нет — скрываем прогресс-бар
@@ -2151,6 +2179,159 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
     }
 
+    // ── Еженедельный челлендж 📅 (раз в неделю, пн–вс) ───────
+
+    /** Отобразить блок «Еженедельный челлендж» 📅 на карте уровней. */
+    function renderWeekly() {
+        if (!weeklyBlock || !weeklyCard) return;
+        const info = weeklyInfo(state);
+        if (!info) return;
+
+        if (weeklyWeek) weeklyWeek.textContent = `неделя ${info.week}`;
+        if (weeklyDesc) {
+            weeklyDesc.textContent = info.done
+                ? 'Недельный челлендж пройден! Новая задача — в понедельник.'
+                : `Одна задача на неделю для всех игроков: собери ${info.target.toLocaleString('ru')} за ${info.movesLimit} ходов. Успей до воскресенья!`;
+        }
+        if (weeklyTarget) weeklyTarget.textContent = info.target.toLocaleString('ru');
+        if (weeklyMoves) {
+            weeklyMoves.textContent = `Ходов: ${info.movesLimit}${info.bestMoves ? ` · рекорд ${info.bestMoves}` : ''}`;
+        }
+        if (weeklyReward) {
+            weeklyReward.textContent = info.done
+                ? (info.claimed ? '✓ Награда получена' : `🎁 +${info.reward} жемчужин`)
+                : `Награда: +${info.reward} жемчужин`;
+        }
+        if (weeklyPlay) {
+            weeklyPlay.disabled = false;
+            weeklyPlay.textContent = info.done ? '🌊 Сыграть снова' : '🌊 Играть';
+        }
+        weeklyCard.classList.toggle('done', info.done);
+    }
+
+    /** Запустить недельный челлендж 📅: одна задача недели, лимит ходов. */
+    function startWeekly() {
+        const info = weeklyInfo(state);
+        if (!info) return;
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        hideModal(levelModal);
+
+        const lv = levelById(info.levelId);
+        ensureWeekly(state);
+        state.currentLevel = info.levelId; // недельный челлендж использует уровень как контекст
+        lastScore = 0;
+        reviveCount = 0;
+        reviveBusy = false;
+        challengeActive = false; // недельный челлендж — не обычный «Челлендж» уровня
+        weeklyActive = true;
+        saveState(state);
+        updateHeader();
+        renderMission();
+        updateChallengeIndicator();
+
+        game = new Game({
+            boardElement:  boardEl,
+            size:          lv.size,
+            target:        info.target,
+            infinity:      false,
+            tide:          null, // чистый 2048, без прилива
+            moves:         null,
+            shark:         null, // и без акулы
+            abilities:     null, // и без плиток-способностей
+            moveLimit:     info.movesLimit, // 📅 «N ходов на цель»
+            appearanceMultiplier: 1,
+            fourChance:    0.1,
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove:  () => {
+                if (state.sound !== false) playMove();
+                state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+                updateChallengeIndicator();
+            },
+            onTide:  null,
+            onThreat: null,
+            onSharkEat: null,
+            onAbility: null,
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
+                const reward = comboReward({ merges: n, streak: game.streak });
+                if (reward.score > 0) {
+                    game.addScore(reward.score);
+                    showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
+                }
+            },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); },
+            onTarget: () => {},
+            onWin: (score) => {
+                const res = recordWeeklyResult(state, {
+                    completed: true,
+                    score,
+                    movesUsed: game ? game.getMoves() : 0,
+                });
+                let got = 0;
+                if (res.isNewDone) {
+                    got = claimWeeklyReward(state); // награда выдаётся один раз за неделю
+                    state.dailyCounters.wins = (state.dailyCounters.wins || 0) + 1;
+                    saveState(state);
+                    updateDoubloons();
+                    if (got > 0) showToast(`+${got} жемчужин — еженедельный челлендж!`, '📅');
+                }
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playWin();
+                spawnConfetti(90, true);
+                showWinModal(score, false);
+                // Переопределим заголовок модалки под недельный челлендж
+                modalIcon.textContent  = '📅';
+                modalTitle.textContent = 'Еженедельный челлендж пройден!';
+                modalMessage.textContent = res.isNewDone
+                    ? `Собрал ${info.target.toLocaleString('ru')} за ${info.movesLimit} ходов! +${got} жемчужин.`
+                    : `Собрал ${info.target.toLocaleString('ru')} за ${info.movesLimit} ходов!`;
+            },
+            onGameOver: (score) => {
+                recordWeeklyResult(state, {
+                    completed: false,
+                    score,
+                    movesUsed: game ? game.getMoves() : 0,
+                });
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playGameOver();
+                showGameOverModal(score);
+                // Переопределим текст: недельный челлендж закончился
+                modalIcon.textContent  = '📅';
+                modalTitle.textContent = 'Еженедельный челлендж не пройден';
+                modalMessage.textContent = game && game.getMoves() >= info.movesLimit
+                    ? `Ходы закончились (${info.movesLimit}). Цель ${info.target.toLocaleString('ru')} не собрана. Попробуй ещё!`
+                    : `Нет доступных ходов. До цели ${info.target.toLocaleString('ru')} не хватило. Попробуй ещё!`;
+            },
+        });
+
+        state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+        saveState(state);
+        updateStats();
+        updateUndoState();
+        updateMoves();
+        updateTideIndicator();
+        updateThreatIndicator();
+        updateSharkIndicator();
+        updateChallengeIndicator();
+        updateBoostBar();
+        // П. 1.19.3: запуск недельного челленджа — начало игрового процесса.
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+    }
+
     // ── Настройки ────────────────────────────────────────────
 
     function openSettingsModal() {
@@ -2389,6 +2570,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // Ежедневная головоломка 🧩 — кнопка в карте уровней
     if (dpPlay) dpPlay.addEventListener('click', startDailyPuzzle);
+
+    // Еженедельный челлендж 📅 — кнопка в карте уровней
+    if (weeklyPlay) weeklyPlay.addEventListener('click', startWeekly);
 
     gameModal.addEventListener('click', (e) => {
         if (e.target === gameModal) hideModal(gameModal);

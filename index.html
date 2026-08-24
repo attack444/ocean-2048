@@ -257,6 +257,23 @@
                 <div class="ch-grid" id="ch-grid"></div>
             </div>
 
+            <!-- Еженедельный челлендж 📅: раз в неделю (пн–вс) выпадает ОДИН
+                 челлендж «собери N за M ходов», одинаковый у всех игроков.
+                 Награда — жемчужины за первое прохождение недели. -->
+            <div class="weekly-block" id="weekly-block">
+                <div class="ch-head">
+                    <span class="ch-title">📅 Еженедельный челлендж</span>
+                    <span class="ch-week" id="weekly-week"></span>
+                </div>
+                <div class="ch-desc" id="weekly-desc"></div>
+                <div class="weekly-card" id="weekly-card">
+                    <div class="ch-goal">Цель: <strong id="weekly-target">—</strong></div>
+                    <div class="ch-moves" id="weekly-moves"></div>
+                    <div class="ch-reward" id="weekly-reward"></div>
+                    <button class="btn btn-primary" id="weekly-play-btn" type="button">🌊 Играть</button>
+                </div>
+            </div>
+
             <!-- Карта глубин: визуальный выбор уровня вместо простого списка -->
             <div class="depths-map" id="depths-map">
                 <div class="dm-badge" id="dm-badge" hidden></div>
