@@ -31,6 +31,12 @@ export default class Game {
         // Шанс выпадения плитки 4 вместо 2 (перк «Дух четвёрки», по умолчанию 10%)
         this.fourChance           = Math.min(1, Math.max(0, Number(config.fourChance) || 0.1));
 
+        // Детерминированный генератор случайных чисел (для ежедневной головоломки с общим сидом).
+        // Если передан function — используется он (seeded RNG), иначе Math.random.
+        // Обёртка () => Math.random() (а не .bind) — читает текущую функцию в момент вызова,
+        // поэтому тесты, подменяющие Math.random, продолжают работать.
+        this._rng = (typeof config.random === 'function') ? config.random : () => Math.random();
+
         this.tiles         = [];
         this.score         = 0;
         this.won           = false;
@@ -325,9 +331,9 @@ export default class Game {
             if (this.tiles[i] !== null) filled.push(this.tiles[i]);
         }
         if (filled.length < 2) return false;
-        // Фишер–Йетс
+        // Фишер–Йетс (используем инжектируемый RNG — детерминирован при общем сиде)
         for (let i = filled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(this._rng() * (i + 1));
             [filled[i], filled[j]] = [filled[j], filled[i]];
         }
         let k = 0;
@@ -825,10 +831,10 @@ export default class Game {
         const empty = [];
         for (let i = 0; i < this.tiles.length; i++) if (this.tiles[i] === null) empty.push(i);
         if (empty.length === 0) return;
-        const idx = empty[Math.floor(Math.random() * empty.length)];
+        const idx = empty[Math.floor(this._rng() * empty.length)];
         // Перк «Дух четвёрки»: шанс плитки 4 выше стандартных 10% (fourChance)
         const chance = Math.min(1, Math.max(0, Number(this.fourChance) || 0.1));
-        this.tiles[idx] = { id: this._nextTileId++, value: Math.random() < chance ? 4 : 2, justSpawned: true };
+        this.tiles[idx] = { id: this._nextTileId++, value: this._rng() < chance ? 4 : 2, justSpawned: true };
     }
 
     // ──────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@
 - Запуск приложения (iframe, параметры запуска): https://dev.vk.com/ru/mini-apps/launch-game
 - Модерация каталога: https://dev.vk.com/ru/mini-apps/catalog/moderation
 
-Обновлён: 2026-08-21.
+Обновлён: 2026-08-22.
 
 ## Что уже реализовано (SDK-адаптер `js/platform-sdk.js`)
 
@@ -26,6 +26,7 @@
 | Лидерборд (показ) | `VKWebAppShowLeaderBoardBox` (`user_result`) — системная таблица | ❌ добавить (Фаза 0.5) |
 | Реклама interstitial | `VKWebAppShowNativeAds` (`ad_format: 'interstitial'`) | ✅ |
 | Реклама rewarded | `VKWebAppShowNativeAds` (`ad_format: 'reward'`) | ✅ |
+| Покупки за голоса (IAP) | `VKWebAppGetOrderItems` (каталог) + `VKWebAppShowOrderBox` (`type:'item'`) | ✅ код готов; нужна активация товаров в кабинете «Платежи» |
 | Поделиться | `VKWebAppShare` | ✅ |
 
 Все методы безопасны: вне VK (web/standalone) возвращают `false`/пустые данные,
@@ -75,14 +76,22 @@ curl -sI https://5mb2.ru/static/games/ocean-2048/index.html | findstr /i "x-fram
 # заголовок, разрешающий frame-ancestors vk.com (см. выше).
 ```
 
+> ✅ **Исправлено (2026-08-21):** сервер слал `X-Frame-Options: DENY` и CSP
+> `frame-src` без `frame-ancestors` для `/static/games/*` — это гарантировало
+> «белый экран» в iframe VK. Правка в `services/web/src/middleware/security.js`
+> на сервере: для путей `/static/games/*` заголовок `X-Frame-Options` НЕ
+> выставляется, а в CSP вместо `frame-src` добавляется
+> `frame-ancestors 'self' https://vk.com https://*.vk.com https://*.vk.me`.
+> Для остальных страниц (SaaS) защита `X-Frame-Options: DENY` сохранена.
+
 ## Сборка VK-версии
 
 ```bash
 npm run build:vk
 # → build/vk/  (index.html, manifest.json, sw.js, privacy-policy.html,
-#   css/styles.css, icons/, js/ — 14 модулей: achievements, cloud-sync, combo,
-#   daily-login, daily, game, levels, main, platform-sdk, platform, progress,
-#   rewards, shop, sound; build.json)
+#   css/styles.css, icons/, js/ — 18 модулей: achievements, chest, cloud-sync,
+#   combo, daily-login, daily, daily-puzzle, depths-map, game, levels, main,
+#   missions, platform-sdk, platform, progress, rewards, shop, sound; build.json)
 ```
 
 Особенности сборки (`scripts/build-vk.js`):
@@ -90,13 +99,13 @@ npm run build:vk
   только Яндекс Играм; на VK такой путь привёл бы к ошибке `Failed to load resource`.
 - Исключены серверные/нативные модули (`board.js`, `config.js`, `utils.js`, `ui.js`,
   `native-entry.js`, `native-plugins.js`) и все `*.test.js`.
-- `build.json` содержит `{ platform: 'vk', version: '1.0.0', jsModules: 14 }`.
+- `build.json` содержит `{ platform: 'vk', version: '1.0.0', jsModules: 18 }`.
 
 ## Деплой на 5mb2.ru (уже выполнен)
 
 Статика лежит в `/static/games/ocean-2048/` на том же сервере, что и плейграунд:
 - `index.html`, `privacy-policy.html`, `manifest.json`, `sw.js`
-- `css/styles.css`, `js/` (14 модулей), `icons/`
+- `css/styles.css`, `js/` (15 модулей), `icons/`
 
 URL для VK: **https://5mb2.ru/static/games/ocean-2048/index.html**
 
@@ -152,7 +161,7 @@ URL для VK: **https://5mb2.ru/static/games/ocean-2048/index.html**
 
 | Требование | Как выполнено у нас |
 |-----------|---------------------|
-| Соблюдение правил VK | ✅ контент нейтральный, 3+, без насилия/азарта/покупок за реальные деньги |
+| Соблюдение правил VK | ✅ контент нейтральный, 3+, без насилия/азарта; покупки — только за голоса VK (игровая валюта) |
 | Игра работает без ошибок и крашей | ✅ тесты, песочница, деплой на 5mb2.ru |
 | Возможность **отключить звук** | ✅ кнопка звука в игре (сохраняется в настройках) |
 | Канал поддержки | ✅ e-mail поддержки в карточке + `privacy-policy.html` |
@@ -187,7 +196,7 @@ URL для VK: **https://5mb2.ru/static/games/ocean-2048/index.html**
 • Ежедневные задания и ежедневный бонус с наградами
 • Облачные сохранения: прогресс синхронизируется между устройствами
 • Таблица рекордов — соревнуйся с другими игроками
-• Без покупок за реальные деньги
+• Покупки жемчужин за голоса VK — по желанию, игровая валюта
 
 Правила простые: сдвигай плитки, сливай одинаковые числа и получай очки. За жемчужины покупай бусты и скины. Исследуй глубины, набирай рекорды и стань настоящим Хозяином Моря!
 ```
@@ -214,7 +223,7 @@ URL для VK: **https://5mb2.ru/static/games/ocean-2048/index.html**
 
 | Поле | Значение |
 |------|----------|
-| Адрес приложения (URL) | `https://5mb2.ru/static/games/ocean-2048/index.html` |
+| Адрес приложения (URL) | `https://prod-app54731343-2ec00e9a1ff3.pages-ac.vk-apps.ru/index.html` (хостинг VK) |
 | Категория | Головоломки (Puzzle) |
 | Язык | Русский |
 | Возрастной рейтинг | 3+ |
@@ -234,10 +243,17 @@ VK даёт бесплатный статический хостинг для м
 ```bash
 npm run build:vk                                   # → build/vk/ (без /sdk.js)
 npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk/
-# выдаёт HTTPS-URL вида https://your-app-name.vk-apps.com/...
+# выдаёт HTTPS-URL вида https://prod-app<ID>-<hash>.pages-ac.vk-apps.ru/...
 ```
 Этот URL указываем в разделе «Размещение» — файлы хранятся на серверах VK,
 свой сервер для игры не нужен. Обновление = пересборка + повторный деплой.
+
+> ✅ **Деплой выполнен (2026-08-22):** приложение 54731343 задеплоено на хостинг VK.
+> Прод-URL (все три платформы):
+> - vk.ru / iOS & Android / m.vk.ru:
+>   **https://prod-app54731343-2ec00e9a1ff3.pages-ac.vk-apps.ru/index.html**
+> (ответ HTTP 200). Обновление игры = пересборка `build/vk` + повторный деплой той
+> же командой; URL остаётся прежним.
 
 **Перенос на свою экосистему (позже):**
 1. Задеплоить `build/vk/` на свой 24/7-сервер по HTTPS (как уже сделано на 5mb2.ru).
@@ -250,6 +266,26 @@ npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk
 **Параллельно (не мешает VK-хостингу):** игра уже развёрнута на 5mb2.ru
 (https://5mb2.ru/games/game/ocean-2048) — это наш «запасной» URL и плейграунд
 до переноса экосистемы.
+
+## Ассеты для кабинета VK (иконки, сниппет, скриншоты, Lottie)
+
+> Генерация: `npm run make:vk` → `store/vk/`. Скрипт [`scripts/make-vk-assets.mjs`](../scripts/make-vk-assets.mjs)
+> рендерит иконки из `icons/icon.svg`, сниппет — из иконки в фирменном стиле,
+> скриншоты 600×1200 — центральный кроп реальных игровых скриншотов
+> `store/shots/iphone-*.png` (1179×2556), Lottie — встроенная анимация 96×96.
+> **Эти файлы загружаются вручную в кабинете VK** (раздел «Изображения»), в хостинг не деплоятся.
+
+| Требование VK | Размер | Файл `store/vk/` | Готов |
+|---|---|---|---|
+| Универсальная иконка (каталог, лента, сообщения, рекомендации) | 576×576 PNG | `icon-universal-576.png` | ✅ 51,6 КБ |
+| Иконка для каталога и сниппетов (дополнительная) | 278×278 PNG | `icon-catalog-278.png` | ✅ 19,9 КБ |
+| Маленькая иконка (экран запуска, сообщения, уведомления) | 150×150 PNG | `icon-small-150.png` | ✅ 9,9 КБ |
+| Фавикон (десктоп, вкладка браузера) | 32×32 PNG ≤50 КБ | `favicon-32.png` | ✅ 1,5 КБ |
+| Большой сниппет | 1120×630 PNG | `snippet-1120x630.png` | ✅ 258 КБ |
+| Скриншоты (экран запуска в десктопе) | 600×1200 PNG | `screenshots/screenshot-600x1200-{1-home,2-moves,3-shop,4-skins}.png` | ✅ 4 шт. |
+| Анимированная иконка (экран загрузки) | 96×96 Lottie JSON ≤24 КБ | `loading-animation.json` | ✅ 1,2 КБ (2 слоя, валидный JSON) |
+
+> Уже были: фавикон 32×32 — [`icons/icon-32.png`](../icons/icon-32.png); баннеры 1280×720 — [`store/media/banners/`](media/banners/).
 
 ## Тест в песочнице / на устройстве (перед модерацией)
 
@@ -268,18 +304,27 @@ npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk
 ## Чеклист готовности
 
 - [x] VK-сборка `scripts/build-vk.js` + npm-скрипт `build:vk` (без тега `/sdk.js`)
-- [x] Сборка `build/vk/` актуальна (14 модулей js, build.json `platform: 'vk'`)
+- [x] Сборка `build/vk/` актуальна (18 модулей js, build.json `platform: 'vk'`)
 - [x] VK SDK-адаптер: `VKWebAppInit`, облако `ocean2048_save`, реклама, шаринг
-- [ ] VK SDK-адаптер: лидерборд через `VKWebAppShowLeaderBoardBox` (замена удалённых
-      `VKWebAppSaveToLeaderBoard`/`VKWebAppGetLeaderBoard`) — **Фаза 0.5** в `store/DEV_PLAN.md`
+- [x] VK SDK-адаптер: лидерборд через `VKWebAppShowLeaderBoardBox` (кнопка «Таблица»
+      в игре; запись через серверный `secure.addAppEvent` — **после каталога**, Фаза 4)
 - [x] Деплой статики на HTTPS: https://5mb2.ru/static/games/ocean-2048/index.html
 - [x] Политика конфиденциальности на HTTPS: `privacy-policy.html`
 - [x] Автоопределение хоста VK (`detectHost()`) + загрузка VK Bridge
-- [ ] Создать VK Mini App в https://dev.vk.com и получить App ID
-- [ ] Указать URL `https://5mb2.ru/static/games/ocean-2048/index.html` в разделе «Размещение»
-- [ ] Проверить, что сервер 5mb2.ru не шлёт `X-Frame-Options`/`CSP frame-ancestors`, блокирующие VK
+- [x] VK Mini App создан: **App ID 54731343** (https://vk.com/app54731343)
+- [x] Конфиг `vk-hosting-config.json` готов для `vk-miniapps-deploy` (App ID 54731343)
+- [x] Проверить, что сервер 5mb2.ru не шлёт `X-Frame-Options`/`CSP frame-ancestors`, блокирующие VK
+- [x] Выполнить деплой на хостинг VK (`npx @vkontakte/vk-miniapps-deploy` — авторизация + код подтверждения из сообщения VK)
+- [x] Получить URL хостинга VK: **https://prod-app54731343-2ec00e9a1ff3.pages-ac.vk-apps.ru/index.html** (HTTP 200)
+- [ ] Указать URL хостинга VK в разделе «Размещение» приложения 54731343 (если ещё не указан)
 - [ ] Статус приложения «Включено» (доступ по прямой ссылке в VK)
+- [ ] Проверить запуск в iframe VK (без белого экрана, `VKWebAppInit` без ошибок)
 - [ ] Заполнить карточку каталога + «Описание основных сценариев» и отправить на модерацию
+- [x] Сгенерировать все ассеты VK (`npm run make:vk` → `store/vk/`): иконки 576/278/150/32, сниппет 1120×630, скриншоты 600×1200, Lottie JSON 96×96 (`loading-animation.json`)
+- [ ] Загрузить иконки/сниппет/скриншоты/Lottie в кабинете VK (раздел «Изображения»)
+- [ ] **IAP (код готов):** создать товары «Платежи» в кабинете VK — `donate_small` (10 голосов), `donate_medium` (25), `donate_large` (60), `donate_mega` (130); id должны совпадать с `DONATE_PACKS` в [`js/chest.js`](../js/chest.js)
+- [ ] **IAP:** включить монетизацию приложения в кабинете dev.vk.com (платежи + реклама interstitial/rewarded)
+- [ ] **IAP:** проверить в песочнице — каталог `VKWebAppGetOrderItems` и окно покупки `VKWebAppShowOrderBox` открываются без ошибок; после подтверждения зачисляются жемчужины
 
 ## Особенности / риски
 
@@ -293,3 +338,18 @@ npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk
   прогресс на каждой платформе независим.
 - До модерации каталога игра доступна **по прямой ссылке** при статусе «Включено» —
   этого достаточно, чтобы «люди играли»; каталог нужен для поиска внутри VK.
+
+## Оформление сообщества VK (единый хаб «5MB2 Digital»)
+
+> Одно сообщество — вся экосистема: игра «Океан 2048» + студия 5MB2 + SaaS NeoBrain.
+
+- Генерация ассетов: `npm run make:community` → [`scripts/make-community-assets.mjs`](../scripts/make-community-assets.mjs)
+  → `store/community/` (обложка 1590×400, аватары, промо-посты 1200×630, квадраты
+  1080×1080, истории 1080×1920, рекламные креативы VK 1200×627/1080×1080/1080×1920).
+  Стиль «сток-гибрид»: фото-подложка (CSS-слои или `store/community/stock/underwater.jpg`) + типографика.
+- Reels (VK Клипы, 9:16): `node scripts/make-reels.mjs [сек]` → серия
+  `store/media/reels/reel-{game,depths,tips,meme,news}.mp4` (+ `-preview.gif`).
+- Полный гайд оформления (паспорт сообщества, готовые посты, реклама, шаги вручную):
+  [`COMMUNITY_VK.md`](./COMMUNITY_VK.md).
+- Сообщества в настройках мини-аппа: раздел «Официальное сообщество» → выбрать хаб
+  (сообщения от игры будут идти от него).

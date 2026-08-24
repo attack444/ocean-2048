@@ -63,6 +63,7 @@ function makeGame(opts = {}) {
         onScoreUpdate: opts.onScoreUpdate || (() => {}),
         appearanceMultiplier: opts.appearanceMultiplier,
         fourChance: opts.fourChance,
+        random: opts.random,
     });
     Game.prototype._addNewTile = addTile;
     Game.prototype.render = render;
@@ -610,6 +611,38 @@ describe('Game appearance bonus and four-chance perks', () => {
         }
         const filled = g.tiles.filter(Boolean);
         assert.equal(filled[0].value, 4);
+    });
+
+    it('uses an injected seeded RNG for tile placement (daily puzzle)', () => {
+        // Детерминированный источник: каждая новая партия с одним сидом спавнит
+        // плитки в одном и том же порядке — основа ежедневной головоломки с общим сидом.
+        function mulberry(seed) {
+            let a = seed >>> 0;
+            return () => {
+                a |= 0;
+                a = (a + 0x6D2B79F5) | 0;
+                let t = Math.imul(a ^ (a >>> 15), 1 | a);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+        const build = (seed) => {
+            const g = makeGame({ random: mulberry(seed) });
+            g.tiles = Array(16).fill(null);
+            g.render = () => {};
+            return g;
+        };
+        // Доска после N спавнов (значения 0 для пустых клеток) — детерминированная.
+        const boardAfter = (seed, n) => {
+            const g = build(seed);
+            for (let i = 0; i < n; i++) g._addNewTile();
+            return g.tiles.map(t => (t ? t.value : 0));
+        };
+
+        // Один и тот же сид → одинаковая доска (общий сид дня).
+        assert.deepEqual(boardAfter(777, 4), boardAfter(777, 4));
+        // Разные сиды → разные доски.
+        assert.notDeepEqual(boardAfter(777, 4), boardAfter(778, 4));
     });
 });
 

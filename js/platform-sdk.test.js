@@ -762,10 +762,14 @@ describe('sdk social mechanics (VK)', () => {
         assert.deepEqual(sent[0], ['VKWebAppShowInviteBox', {}]);
     });
 
-    it('showRequest sends a challenge message to a friend', async () => {
+    it('showRequest sends a challenge message to a friend (uid + requestKey)', async () => {
         const { s, sent } = vkSdk();
-        assert.equal(await s.showRequest(123, 'Сможешь побить мой рекорд?'), true);
-        assert.deepEqual(sent[0], ['VKWebAppShowRequestBox', { user_id: 123, message: 'Сможешь побить мой рекорд?' }]);
+        assert.equal(await s.showRequest(123, 'Сможешь побить мой рекорд?', 'ocean2048_challenge'), true);
+        assert.deepEqual(sent[0], ['VKWebAppShowRequestBox', {
+            uid: 123,
+            message: 'Сможешь побить мой рекорд?',
+            requestKey: 'ocean2048_challenge',
+        }]);
     });
 
     it('showRequest without args still opens the friend picker', async () => {
@@ -780,25 +784,43 @@ describe('sdk social mechanics (VK)', () => {
         assert.equal(sent[0][1].message.length, 200);
     });
 
-    it('showStory sends a text sticker + attachment + link', async () => {
+    it('showStory sends a native text sticker + button attachment', async () => {
         const { s, sent } = vkSdk();
         const ok = await s.showStory({
             text: 'Новый рекорд!',
-            attachment: 'photo-1_2',
             link: 'https://vk.com/app123',
         });
         assert.equal(ok, true);
         const [m, p] = sent[0];
         assert.equal(m, 'VKWebAppShowStoryBox');
-        assert.deepEqual(p.stickers, [{ sticker_type: 'text', sticker: { text: 'Новый рекорд!' } }]);
-        assert.equal(p.attachment, 'photo-1_2');
-        assert.equal(p.link, 'https://vk.com/app123');
+        assert.deepEqual(p.stickers, [{
+            sticker_type: 'native',
+            sticker: {
+                action_type: 'text',
+                action: { text: 'Новый рекорд!', style: 'classic', background_style: 'none' },
+                transform: { gravity: 'center_top', translation_y: 0.25 },
+            },
+        }]);
+        assert.deepEqual(p.attachment, { type: 'url', text: 'open', url: 'https://vk.com/app123' });
     });
 
-    it('showStory works with an empty opts object', async () => {
+    it('showStory keeps a raw attachment when provided', async () => {
+        const { s, sent } = vkSdk();
+        const ok = await s.showStory({ attachment: 'photo-1_2' });
+        assert.equal(ok, true);
+        assert.equal(sent[0][1].attachment, 'photo-1_2');
+    });
+
+    it('showStory works with an empty opts object (flat background)', async () => {
         const { s, sent } = vkSdk();
         assert.equal(await s.showStory(), true);
-        assert.deepEqual(sent[0][1], { background_type: 'image' });
+        assert.deepEqual(sent[0][1], { background_type: 'none' });
+    });
+
+    it('showStory uses image background when url is provided', async () => {
+        const { s, sent } = vkSdk();
+        await s.showStory({ url: 'https://x.test/bg.jpg' });
+        assert.deepEqual(sent[0][1], { background_type: 'image', url: 'https://x.test/bg.jpg', locked: true });
     });
 
     it('addToFavorites calls VKWebAppAddToFavorites', async () => {
@@ -807,10 +829,33 @@ describe('sdk social mechanics (VK)', () => {
         assert.equal(sent[0][0], 'VKWebAppAddToFavorites');
     });
 
-    it('addToHomeScreen calls VKWebAppAddToHomeScreen', async () => {
-        const { s, sent } = vkSdk();
+    it('addToHomeScreen calls VKWebAppAddToHomeScreen when not yet added', async () => {
+        const s = makeSdk();
+        s.host = 'vk';
+        const sent = [];
+        s.vk = {
+            send: async (m) => {
+                sent.push(m);
+                if (m === 'VKWebAppAddToHomeScreenInfo') return { is_added_to_home_screen: false };
+                return { result: true };
+            },
+        };
         assert.equal(await s.addToHomeScreen(), true);
-        assert.equal(sent[0][0], 'VKWebAppAddToHomeScreen');
+        assert.deepEqual(sent, ['VKWebAppAddToHomeScreenInfo', 'VKWebAppAddToHomeScreen']);
+    });
+
+    it('addToHomeScreen returns true immediately when already added', async () => {
+        const s = makeSdk();
+        s.host = 'vk';
+        const sent = [];
+        s.vk = {
+            send: async (m) => {
+                sent.push(m);
+                return { is_added_to_home_screen: true };
+            },
+        };
+        assert.equal(await s.addToHomeScreen(), true);
+        assert.deepEqual(sent, ['VKWebAppAddToHomeScreenInfo']);
     });
 
     it('getUserInfo maps the VK user object', async () => {
@@ -857,6 +902,45 @@ describe('sdk social mechanics (VK)', () => {
         assert.equal(await s.addToHomeScreen(), false);
         assert.equal(await s.getUserInfo(), null);
         assert.deepEqual(await s.getFriends(), []);
+        assert.deepEqual(await s.getDonateCatalog(), []);
+        assert.equal((await s.buyDonate('donate_small')).ok, false);
+    });
+
+    it('getDonateCatalog maps VK order items', async () => {
+        const s = makeSdk();
+        s.host = 'vk';
+        s.vk = {
+            send: async () => ({
+                items: [
+                    { id: 'donate_small', title: 'Мешочек жемчуга', description: '1000 жемчужин', price: 10 },
+                ],
+            }),
+        };
+        const list = await s.getDonateCatalog();
+        assert.equal(list.length, 1);
+        assert.deepEqual(list[0], {
+            id: 'donate_small',
+            title: 'Мешочек жемчуга',
+            description: '1000 жемчужин',
+            price: 10,
+        });
+    });
+
+    it('buyDonate opens the order box and returns success', async () => {
+        const s = makeSdk();
+        s.host = 'vk';
+        const sent = [];
+        s.vk = { send: async (m, p) => { sent.push([m, p]); return { success: true }; } };
+        const res = await s.buyDonate('donate_small');
+        assert.deepEqual(res, { ok: true, itemId: 'donate_small' });
+        assert.deepEqual(sent[0], ['VKWebAppShowOrderBox', { type: 'item', item: 'donate_small' }]);
+    });
+
+    it('buyDonate returns failure when the bridge rejects', async () => {
+        const s = makeSdk();
+        s.host = 'vk';
+        s.vk = { send: async () => { throw new Error('x'); } };
+        assert.deepEqual(await s.buyDonate('donate_small'), { ok: false });
     });
 
     it('getLaunchParams merges query and hash params', () => {

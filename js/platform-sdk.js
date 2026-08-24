@@ -338,6 +338,44 @@ export const sdk = {
         return false;
     },
 
+    // ── Донат / игровые покупки (VK, голоса) ─────────────────
+    // Покупка виртуальных ценностей за голоса VK: товары создаются в настройках
+    // приложения (кабинет VK → Платежи). Клиент открывает системное окно
+    // подтверждения через VKWebAppShowOrderBox; списание голосов выполняет VK.
+    //
+    // ⚠️ Безопасная (рекомендуемая) схема — подтверждать покупку на своём сервере
+    // (платёжные уведомления + secure API). Здесь — клиентская выдача по успешному
+    // ответу моста (подходит для тестового режима и простых игр; для продакшена
+    // добавьте серверную валидацию в Фазе 6).
+    //
+    // getDonateCatalog(): список товаров магазина (id, title, price в голосах).
+    // Возвращает [] вне VK или при ошибке.
+    async getDonateCatalog() {
+        if (this.host !== 'vk' || !this.vk) return [];
+        try {
+            const res = await this.vk.send('VKWebAppGetOrderItems', {});
+            const items = res?.items || [];
+            return items.map((it) => ({
+                id: String(it.id || ''),
+                title: String(it.title || ''),
+                description: String(it.description || ''),
+                price: Number(it.price) || 0, // голоса
+            }));
+        } catch (_) { return []; }
+    },
+    // buyDonate(itemId): открывает окно подтверждения покупки товара за голоса.
+    // Возвращает { ok: true, itemId } — оплата подтверждена, { ok: false } — иначе.
+    async buyDonate(itemId) {
+        if (this.host !== 'vk' || !this.vk || !itemId) return { ok: false };
+        try {
+            const res = await this.vk.send('VKWebAppShowOrderBox', {
+                type: 'item',
+                item: String(itemId),
+            });
+            return { ok: !!(res && res.success !== false), itemId: String(itemId) };
+        } catch (_) { return { ok: false }; }
+    },
+
     // ── Реклама ────────────────────────────────────────────────
     // showInterstitial: true — реклама показана (или закрыта)
     async showInterstitial() {
@@ -435,30 +473,67 @@ export const sdk = {
     // Запрос: выбрать друга и отправить ему сообщение-вызов из приложения.
     // friendId — конкретный друг (по умолчанию системный выбор списка друзей).
     // text — текст сообщения (по документации не более 200 символов).
+    // requestKey — ключ запроса: придёт получателю как URL-параметр vk_request_key
+    //              при запуске игры (для отслеживания конверсии).
+    // ВАЖНО: по документации dev.vk.com (раздел «Запросы») параметр адресата
+    // называется uid (не user_id) — иначе мост не найдёт получателя.
     // Возвращает true, если запрос отправлен.
-    async showRequest(friendId, text) {
+    async showRequest(friendId, text, requestKey) {
         if (this.host !== 'vk' || !this.vk) return false;
         try {
             const params = {};
-            if (friendId) params.user_id = friendId;
+            if (friendId) params.uid = Number(friendId);
             if (text) params.message = String(text).slice(0, 200);
+            if (requestKey) params.requestKey = String(requestKey);
             await this.vk.send('VKWebAppShowRequestBox', params);
             return true;
         } catch (_) { return false; }
     },
 
-    // История: публикация в «Истории» VK. Требует attachment в формате
-    // 'photo<owner_id>_<id>' (URL-хостинг историй VK недоступен из мини-приложений).
-    // opts: { text, attachment, link } — link добавляется как кнопка «Открыть».
-    // Возвращает true, если история открыта/опубликована.
+    // История: публикация в «Истории» VK (VKWebAppShowStoryBox).
+    // Формат параметров — строго по документации dev.vk.com (раздел «Истории»):
+    //   - стикеры: sticker_type 'native' + sticker.action_type 'text' (+ transform);
+    //   - attachment — объект-кнопка { type:'url', text:'open'|'game', url } для
+    //     перехода в игру из опубликованной истории;
+    //   - background_type: 'image' (+ url) или 'none' (однотонный фон).
+    // opts: { text, url, attachment, link }.
+    //   text — текст-стикер (от первого лица);
+    //   url  — HTTPS-ссылка на фон-изображение (если не задана — фон 'none');
+    //   attachment — готовое вложение (если задано, используется как есть);
+    //   link — URL игры: превращается в кнопку «Открыть» внизу истории.
+    // Возвращает true, если редактор истории открыт.
     async showStory(opts = {}) {
         if (this.host !== 'vk' || !this.vk) return false;
         try {
-            const params = { background_type: 'image' };
-            const { text, attachment, link } = opts;
-            if (text) params.stickers = [{ sticker_type: 'text', sticker: { text } }];
-            if (attachment) params.attachment = attachment;
-            if (link) params.link = link;
+            const { text, url, attachment, link } = opts;
+            const params = {};
+            if (url) {
+                params.background_type = 'image';
+                params.url = String(url);
+                params.locked = true;
+            } else {
+                // Без внешнего HTTPS-изображения используем однотонный фон
+                params.background_type = 'none';
+            }
+            if (text) {
+                params.stickers = [{
+                    sticker_type: 'native',
+                    sticker: {
+                        action_type: 'text',
+                        action: {
+                            text: String(text).slice(0, 200),
+                            style: 'classic',
+                            background_style: 'none',
+                        },
+                        transform: { gravity: 'center_top', translation_y: 0.25 },
+                    },
+                }];
+            }
+            if (attachment) {
+                params.attachment = attachment;
+            } else if (link) {
+                params.attachment = { type: 'url', text: 'open', url: String(link) };
+            }
             await this.vk.send('VKWebAppShowStoryBox', params);
             return true;
         } catch (_) { return false; }
@@ -475,13 +550,17 @@ export const sdk = {
     },
 
     // Добавить на главный экран (Android; в iOS возвращает false — недоступно).
-    // По документации после успеха клиент получает событие VKWebAppAddToHomeScreenInfo.
-    // Возвращает true, если системный диалог открыт.
+    // По документации dev.vk.com сначала проверяем VKWebAppAddToHomeScreenInfo —
+    // не добавлена ли уже игра; если добавлена — сразу true (бонус не дублируем).
+    // Затем вызываем VKWebAppAddToHomeScreen и возвращаем data.result.
+    // Возвращает true, если игра добавлена (или уже была добавлена).
     async addToHomeScreen() {
         if (this.host !== 'vk' || !this.vk) return false;
         try {
-            await this.vk.send('VKWebAppAddToHomeScreen', {});
-            return true;
+            const info = await this.vk.send('VKWebAppAddToHomeScreenInfo', {});
+            if (info && info.is_added_to_home_screen) return true;
+            const res = await this.vk.send('VKWebAppAddToHomeScreen', {});
+            return !!(res && res.result !== false);
         } catch (_) { return false; }
     },
 

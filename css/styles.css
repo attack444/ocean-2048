@@ -810,6 +810,255 @@ footer { display: none; }
 .lc-target { color: var(--gold); font-size: .8rem; font-weight: bold; margin-bottom: 4px; }
 .lc-best  { color: #4caf50; font-size: .75rem; }
 
+/* ======================== Ежедневная головоломка ======================== */
+.daily-puzzle {
+    background: linear-gradient(135deg, rgba(16,64,84,.5), rgba(10,40,60,.45));
+    border: 2px solid rgba(74,247,255,.5);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(74,247,255,.08);
+    position: relative;
+    overflow: hidden;
+}
+
+.daily-puzzle::before {
+    content: '🌊';
+    position: absolute;
+    right: -10px;
+    bottom: -18px;
+    font-size: 5rem;
+    opacity: .1;
+    pointer-events: none;
+}
+
+.dp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.dp-title {
+    color: var(--gold-light);
+    font-weight: bold;
+    font-size: .95rem;
+    letter-spacing: .3px;
+}
+
+.dp-date {
+    color: rgba(255,255,255,.6);
+    font-size: .75rem;
+    white-space: nowrap;
+}
+
+.dp-desc {
+    color: rgba(255,255,255,.75);
+    font-size: .78rem;
+    line-height: 1.4;
+    margin-bottom: 10px;
+}
+
+.dp-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.dp-stat {
+    color: rgba(255,255,255,.85);
+    font-size: .8rem;
+}
+
+.dp-stat strong {
+    color: var(--gold);
+}
+
+.dp-stat.dp-done {
+    color: #4caf50;
+    font-weight: bold;
+    font-size: .85rem;
+}
+
+.dp-stat.dp-done::before {
+    content: '✓ ';
+}
+
+.daily-puzzle .btn {
+    width: 100%;
+}
+
+.daily-puzzle.dp-completed {
+    border-color: rgba(76,175,80,.6);
+}
+
+/* ======================== Карта глубин 🗺️ ======================== */
+.depths-map {
+    position: relative;
+    background: linear-gradient(180deg,
+        rgba(16,64,84,.55) 0%,
+        rgba(10,40,60,.55) 45%,
+        rgba(6,20,40,.65) 100%);
+    border: 2px solid rgba(74,247,255,.35);
+    border-radius: 14px;
+    height: 340px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    box-shadow: inset 0 0 40px rgba(0,0,0,.35);
+}
+
+/* Мягкий градиент глубины (без картинок — только CSS) */
+.depths-map::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,.04) 0%, transparent 30%);
+    pointer-events: none;
+}
+
+/* Линия-путь между узлами */
+.dm-path {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.dm-path-line {
+    stroke: rgba(74,247,255,.55);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    vector-effect: non-scaling-stroke;
+}
+
+/* Контейнер узлов (кликабельные точки-локации) */
+.dm-nodes {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+}
+
+/* Отдельный узел-глубина */
+.dm-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+    user-select: none;
+    transition: transform .18s;
+}
+
+.dm-node:hover { transform: translate(-50%, -50%) scale(1.1); }
+
+/* Кружок-«пузырь» узла */
+.dm-dot {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    background: radial-gradient(circle at 30% 30%, rgba(74,247,255,.35), rgba(16,64,84,.9));
+    border: 2px solid rgba(74,247,255,.8);
+    box-shadow: 0 0 12px rgba(74,247,255,.35), inset 0 -4px 10px rgba(0,0,0,.4);
+    transition: background .18s, border-color .18s, box-shadow .18s;
+}
+
+/* Статусы */
+.dm-node.locked      .dm-dot { filter: grayscale(.9); opacity: .55; border-color: rgba(255,255,255,.25); }
+.dm-node.completed   .dm-dot { background: radial-gradient(circle at 30% 30%, rgba(76,175,80,.5), rgba(20,70,40,.9)); border-color: #4caf50; box-shadow: 0 0 12px rgba(76,175,80,.5); }
+.dm-node.current     .dm-dot { border-color: var(--gold-bright); box-shadow: 0 0 16px rgba(74,247,255,.8), 0 0 0 4px rgba(74,247,255,.25); animation: dm-pulse 1.6s ease-in-out infinite; }
+
+@keyframes dm-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.12); }
+}
+
+/* Подпись узла (ранг + имя зоны) */
+.dm-label {
+    background: rgba(0,0,0,.55);
+    border: 1px solid rgba(74,247,255,.3);
+    border-radius: 6px;
+    padding: 1px 5px;
+    font-size: .62rem;
+    color: rgba(255,255,255,.9);
+    white-space: nowrap;
+    text-shadow: 0 1px 2px #000;
+}
+
+.dm-node.completed .dm-label { border-color: rgba(76,175,80,.5); }
+.dm-node.locked    .dm-label { color: rgba(255,255,255,.55); }
+
+/* Рекорд и награда за глубину */
+.dm-best,
+.dm-reward {
+    font-size: .6rem;
+    font-weight: bold;
+    border-radius: 999px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+
+.dm-best {
+    background: rgba(255,214,0,.16);
+    color: #ffd60a;
+    border: 1px solid rgba(255,214,0,.55);
+}
+
+.dm-reward {
+    cursor: pointer;
+    font: inherit;
+    line-height: 1.5;
+    background: linear-gradient(135deg, rgba(255,120,0,.22), rgba(255,214,0,.22));
+    color: #ffc94d;
+    border: 1px solid rgba(255,180,0,.6);
+    animation: dm-pulse 1.4s ease-in-out infinite;
+}
+
+.dm-reward:hover { background: linear-gradient(135deg, rgba(255,120,0,.4), rgba(255,214,0,.4)); }
+
+/* Бейдж «есть награды» на карте */
+.dm-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    background: var(--gold);
+    color: #231d08;
+    font-size: .72rem;
+    font-weight: bold;
+    border-radius: 999px;
+    padding: 2px 9px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    animation: dm-pulse 1.4s ease-in-out infinite;
+}
+
+/* Легенда статусов */
+.dm-legend {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 6px;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    font-size: .6rem;
+    color: rgba(255,255,255,.7);
+    text-shadow: 0 1px 2px #000;
+    flex-wrap: wrap;
+}
+
 /* ======================== Полный экран ======================== */
 body.is-fullscreen {
     padding: 0;
@@ -1538,6 +1787,57 @@ body.large-text .shop-desc { font-size: .84rem; }
 body.theme-light .daily-login { background: linear-gradient(180deg, rgba(0,184,212,.15), rgba(0,0,0,.04)); border-color: #00b8d4; }
 body.theme-light .dl-day { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.18); color: #1a5a76; }
 body.theme-light .dl-day.filled { border-color: #00b8d4; background: rgba(0,184,212,.18); color: #007a91; }
+
+/* ==================================================================
+   СЮЖЕТНАЯ МИССИЯ ГЛУБИНЫ (Фаза 2 «Цель ≠ набери N»)
+   Прогресс-бар над доской: цель + награда за выполнение.
+   ================================================================== */
+.mission-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 500px;
+    margin: 0 auto 8px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, rgba(9,60,45,.9), rgba(16,84,60,.85));
+    border: 1px solid rgba(130,255,180,.25);
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+.mission-icon { font-size: 1.15rem; }
+.mission-body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mission-title {
+    font-weight: bold;
+    color: #e6fff0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mission-track {
+    height: 7px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.12);
+    overflow: hidden;
+}
+.mission-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #69f0ae, #26a69a);
+    transition: width .3s ease;
+}
+.mission-caption { font-size: .72rem; color: rgba(255,255,255,.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mission-claim { flex-shrink: 0; }
+.mission-bar.done .mission-track { background: rgba(105,240,174,.25); }
+.mission-bar.done .mission-fill { background: linear-gradient(90deg, #ffd740, #ffab40); animation: dm-pulse 1.4s ease-in-out infinite; }
+.mission-bar.done .mission-caption { color: #ffd740; font-weight: bold; }
+.mission-bar[hidden] { display: none; }
+body.theme-light .mission-bar { background: linear-gradient(90deg, #d8f5e6, #c2efdb); border-color: #26a69a; }
+body.theme-light .mission-title { color: #0a5c40; }
+body.theme-light .mission-caption { color: #0a5c40; }
 
 /* ==================================================================
    ИНДИКАТОР ПРИЛИВА (Фаза 2.5 «Глубина ядра»)

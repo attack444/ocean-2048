@@ -2,6 +2,9 @@ node_modules/
 www/
 dist/
 build/
+# ZIP-артефакты сборок (VK/Yandex) — не коммитить
+build.zip
+*.zip
 .DS_Store
 *.log
 .idea/
@@ -26,10 +29,13 @@ ios/DerivedData/
 .env.*
 
 # Contains SSH credentials + GitHub token — never commit
-DEPLOY-NOTES.md
+docs/DEPLOY-NOTES.md
 
 # Local checkpoint notes — never commit
-PROGRESS-NOTES.md
+docs/PROGRESS-NOTES.md
 
 # GitHub automation helper scripts — never commit (may contain credentials)
 gh-*.js
+
+# VK Mini Apps deploy config — contains App ID (не коммитить в публичный репозиторий)
+vk-hosting-config.json

@@ -117,6 +117,20 @@
 
         <!-- ── Игровое поле ────────────────────────────────── -->
         <main>
+            <!-- Сюжетная миссия глубины 🎯 (Фаза 2: «Цель ≠ набери N»).
+                 Прогресс-бар над доской: цель + награда за выполнение. -->
+            <div id="mission-bar" class="mission-bar" hidden>
+                <span class="mission-icon" id="mission-icon" aria-hidden="true">🎯</span>
+                <div class="mission-body">
+                    <div class="mission-title" id="mission-title">Миссия</div>
+                    <div class="mission-track" aria-hidden="true">
+                        <span class="mission-fill" id="mission-fill"></span>
+                    </div>
+                    <div class="mission-caption" id="mission-caption"></div>
+                </div>
+                <button id="mission-claim" class="btn btn-small mission-claim" type="button" hidden>🎁 Забрать</button>
+            </div>
+
             <!-- Индикатор прилива 🌊 (Фаза 2.5: «Глубина ядра»).
                  Показывает, через сколько ходов вода поднимется и смоет нижний ряд. -->
             <div id="tide-indicator" class="tide-indicator" hidden>
@@ -190,10 +204,39 @@
         </div>
     </div>
 
-    <!-- ── Модальное окно: выбор уровня ──────────────────────── -->
+    <!-- ── Модальное окно: выбор уровня + ежедневная головоломка ── -->
     <div id="level-modal" class="modal-overlay" role="dialog" aria-modal="true">
         <div class="modal level-modal">
             <h2>🗺️ Карта уровней</h2>
+
+            <!-- Ежедневная головоломка (Wordle-механика: одна доска на всех в день).
+                 Обновляется раз в день, возвращает игрока завтра. -->
+            <div class="daily-puzzle" id="daily-puzzle">
+                <div class="dp-head">
+                    <span class="dp-title">🧩 Ежедневная головоломка</span>
+                    <span class="dp-date" id="dp-date"></span>
+                </div>
+                <div class="dp-desc" id="dp-desc"></div>
+                <div class="dp-stats">
+                    <span class="dp-stat">Цель: <strong id="dp-target">512</strong></span>
+                    <span class="dp-stat">Лучший результат: <strong id="dp-best">0</strong></span>
+                    <span class="dp-stat dp-done" id="dp-done" hidden>✓ Пройдено</span>
+                </div>
+                <button class="btn btn-primary" id="dp-play-btn">🌊 Играть</button>
+            </div>
+
+            <!-- Карта глубин: визуальный выбор уровня вместо простого списка -->
+            <div class="depths-map" id="depths-map">
+                <div class="dm-badge" id="dm-badge" hidden></div>
+                <svg class="dm-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <path id="dm-path-line" d="M30,7 L72,18 L24,31 L68,43 L30,56 L68,69 L48,84"
+                          class="dm-path-line" fill="none" />
+                </svg>
+                <div class="dm-nodes" id="dm-nodes"></div>
+                <div class="dm-legend">
+                    <span>🔒 Закрыто</span><span>🌊 Доступно</span><span>✅ Пройдено</span><span>📌 Сейчас</span>
+                </div>
+            </div>
             <div class="levels-grid" id="levels-grid"></div>
             <button class="btn btn-ghost" id="close-level-modal">✕ Закрыть</button>
         </div>

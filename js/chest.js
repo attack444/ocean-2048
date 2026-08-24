@@ -119,13 +119,16 @@ export function todayKey(d = new Date()) {
 // ──────────────────────────────────────────────────────────────
 // Донат (реальные деньги) — рецепты для платформ VK / Yandex.
 // Здесь только декларативные наборы; реальную оплату проводит
-// платформа (VKWebAppShowOrderBox / Purchase API), а на вебе
-// вкладка доната скрыта или показывает «скоро».
+// платформа:
+//   - VK: товары за голоса (id — идентификатор товара в кабинете
+//     VK → Платежи; votes — цена в голосах; отображается на кнопке).
+//   - Yandex: Purchase API (Фаза 6).
+// На вебе вкладка доната показывает «скоро».
 // ──────────────────────────────────────────────────────────────
 
 export const DONATE_PACKS = [
-    { id: 'donate_small',  pearls: 1000,  priceRub: 49,  icon: '🦪', name: 'Мешочек жемчуга' },
-    { id: 'donate_medium', pearls: 3000,  priceRub: 129, icon: '💰', name: 'Сундук с жемчугом' },
-    { id: 'donate_large',  pearls: 8000,  priceRub: 299, icon: '👑', name: 'Сокровища глубин' },
-    { id: 'donate_mega',   pearls: 20000, priceRub: 699, icon: '🐙', name: 'Наследие Кракена' },
+    { id: 'donate_small',  pearls: 1000,  votes: 10,  priceRub: 49,  icon: '🦪', name: 'Мешочек жемчуга' },
+    { id: 'donate_medium', pearls: 3000,  votes: 25,  priceRub: 129, icon: '💰', name: 'Сундук с жемчугом' },
+    { id: 'donate_large',  pearls: 8000,  votes: 60,  priceRub: 299, icon: '👑', name: 'Сокровища глубин' },
+    { id: 'donate_mega',   pearls: 20000, votes: 130, priceRub: 699, icon: '🐙', name: 'Наследие Кракена' },
 ];

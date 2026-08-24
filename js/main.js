@@ -10,6 +10,9 @@ import { canRevive } from './rewards.js';
 import { comboReward, STREAK_THRESHOLD } from './combo.js';
 import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel } from './levels.js';
 import { ACHIEVEMENTS, evaluateAchievements } from './achievements.js';
+import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, makeRng, seedFromDate } from './daily-puzzle.js';
+import { DEPTH_NODES, depthRewardFor, depthStatus, canClaimDepthReward, claimDepthReward, pendingDepthRewards } from './depths-map.js';
+import { missionForLevel, missionProgress, isMissionComplete, isMissionClaimed, claimMissionReward } from './missions.js';
 import { DAILY_TASKS, ensureDaily as ensureDailyState, dailyMetric as dailyMetricState, checkDaily as checkDailyState } from './daily.js';
 import { claimDailyLogin, dailyLoginInfo } from './daily-login.js';
 import {
@@ -129,6 +132,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     const levelModal     = $('level-modal');
     const levelsGrid     = $('levels-grid');
     const closeLevelBtn  = $('close-level-modal');
+    const depthsNodesEl  = $('dm-nodes');
+    const depthsBadgeEl  = $('dm-badge');
+
+    // Ежедневная головоломка 🧩 (Wordle-механика: одна доска на всех в день)
+    const dpEl     = $('daily-puzzle');
+    const dpDate   = $('dp-date');
+    const dpDesc   = $('dp-desc');
+    const dpTarget = $('dp-target');
+    const dpBest   = $('dp-best');
+    const dpDone   = $('dp-done');
+    const dpPlay   = $('dp-play-btn');
+
+    // Сюжетная миссия глубины 🎯
+    const missionBar    = $('mission-bar');
+    const missionIcon   = $('mission-icon');
+    const missionTitle  = $('mission-title');
+    const missionFill   = $('mission-fill');
+    const missionCaption= $('mission-caption');
+    const missionClaim  = $('mission-claim');
 
     const settingsModal     = $('settings-modal');
     const closeSettingsBtn  = $('close-settings-btn');
@@ -285,6 +307,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let reviveCount = 0;
     let reviveBusy = false;
     let pendingInterstitial = null;
+    // Донат: защита от повторного нажатия, пока окно платежа открыто
+    let donateBusy = false;
+    // Статистика текущей партии для сюжетной миссии 🎯 (сбрасывается при запуске уровня)
+    let missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
 
     // Веб-версия: лимит бесплатных отмен хода в день, дальше — жемчужины
     const WEB_UNDO_LIMIT = 3;
@@ -478,6 +504,62 @@ document.addEventListener('DOMContentLoaded', async () => {
     function updateMoves() {
         if (movesEl) movesEl.textContent = (game ? game.getMoves() : 0).toLocaleString('ru');
         renderCombo();
+    }
+
+    // ── Сюжетная миссия глубины 🎯 (Фаза 2: «Цель ≠ набери N») ──
+    function missionStatsForLevel() {
+        const mt = game ? game.getMaxTile() : 0;
+        const combo = game ? game.streak : 0;
+        return {
+            maxTile: Math.max(missionStats.maxTile, mt),
+            merges:  missionStats.merges,
+            moves:   missionStats.moves,
+            score:   missionStats.score,
+            bestCombo:  Math.max(missionStats.bestCombo, combo),
+            bestStreak: Math.max(missionStats.bestStreak, combo),
+        };
+    }
+
+    function renderMission() {
+        if (!missionBar) return;
+        const mission = missionForLevel(state.currentLevel);
+        if (!mission) { missionBar.hidden = true; return; }
+
+        const stats = missionStatsForLevel();
+        const done = isMissionComplete(mission, stats);
+        const claimed = isMissionClaimed(state, mission.id);
+        const progress = missionProgress(mission, stats);
+        const target = Number(mission.target) || 1;
+
+        missionBar.hidden = false;
+        missionBar.classList.toggle('done', done && !claimed);
+        if (missionIcon) missionIcon.textContent = mission.icon;
+        if (missionTitle) missionTitle.textContent = done && !claimed ? `Миссия выполнена! ${mission.title}` : mission.title;
+        if (missionFill) missionFill.style.width = Math.round((progress / target) * 100) + '%';
+        if (missionCaption) {
+            missionCaption.textContent = claimed
+                ? 'Награда получена 🎁'
+                : done
+                    ? `Забери награду: +${mission.reward} 🦪`
+                    : `${mission.desc} (${progress.toLocaleString('ru')} / ${target.toLocaleString('ru')})`;
+        }
+        if (missionClaim) {
+            missionClaim.hidden = !(done && !claimed);
+            missionClaim.disabled = false;
+        }
+    }
+
+    function claimMission() {
+        const mission = missionForLevel(state.currentLevel);
+        if (!mission) return;
+        const got = claimMissionReward(state, mission.id, missionStatsForLevel());
+        if (got > 0) {
+            saveState(state);
+            updateDoubloons();
+            showToast(`+${got} 🦪 за миссию «${mission.title}»`, mission.icon);
+            renderMission();
+            checkAchievements();
+        }
     }
 
     /** Обновить индикатор прилива: высота воды + сколько ходов до смыва. */
@@ -988,13 +1070,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast(`Обмен: −${res.spent} очков → +${res.gained} жемчужина`, '🔄');
     }
 
+    // На VK цена показывается в голосах (VK), на остальных платформах — в рублях.
+    function donatePriceLabel(pack) {
+        if (sdk.host === 'vk') return `${pack.votes} 🎮`;
+        return `${pack.priceRub} ₽`;
+    }
+
     function renderDonate() {
         if (!donateGrid) return;
         donateGrid.innerHTML = '';
         const canDonate = sdk.isPlatform();
         if (donateInfo) {
             donateInfo.textContent = canDonate
-                ? 'Донат активируется после публикации на платформе'
+                ? (sdk.host === 'vk'
+                    ? 'Покупка жемчужин за голоса VK (после публикации в каталоге)'
+                    : 'Донат активируется после публикации на платформе')
                 : 'Покупка жемчужин за деньги станет доступна на платформах VK / Яндекс';
         }
         for (const pack of DONATE_PACKS) {
@@ -1007,19 +1097,47 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="donate-desc">${pack.pearls.toLocaleString('ru')} жемчужин</div>
                 </div>
                 <button class="btn btn-small shop-buy${canDonate ? '' : ' disabled'}" data-donate-id="${pack.id}">
-                    ${pack.priceRub} ₽
+                    ${donatePriceLabel(pack)}
                 </button>
             `;
-            el.querySelector('.shop-buy[data-donate-id]').addEventListener('click', () => {
+            el.querySelector('.shop-buy[data-donate-id]').addEventListener('click', async () => {
                 if (!canDonate) {
                     showToast('Донат станет доступен на платформе', '💬');
                     return;
                 }
-                // Здесь будет реальный платёж платформы (VKWebAppShowOrderBox / Purchase API).
-                // Заглушка: демо-выдача, чтобы проверить механику экономики.
-                if (pack.id === 'donate_small') { state.doubloons = (state.doubloons || 0) + pack.pearls; saveState(state); updateDoubloons(); renderChest(); showToast(`Демо-донат: +${pack.pearls} жемчужин`, pack.icon); }
+                await handleDonate(pack);
             });
             donateGrid.appendChild(el);
+        }
+    }
+
+    // ── Донат: реальный платёж платформы ──────────────────────
+    // VK: VKWebAppShowOrderBox (за голоса). После подтверждения списания
+    // голосов зачисляем жемчужины. На вебе/Яндексе донат не работает.
+    async function handleDonate(pack) {
+        if (sdk.host !== 'vk') {
+            showToast('Донат пока недоступен на этой платформе', '💬');
+            return;
+        }
+        if (donateBusy) return;
+        donateBusy = true;
+        try {
+            const itemId = pack.id; // id товара должен совпадать с товаром в кабинете VK → Платежи
+            const res = await sdk.buyDonate(itemId);
+            if (res && res.ok) {
+                state.doubloons = (state.doubloons || 0) + pack.pearls;
+                saveState(state);
+                updateDoubloons();
+                renderChest();
+                pushCloudSave();
+                showToast(`+${pack.pearls.toLocaleString('ru')} жемчужин за голоса`, pack.icon);
+            } else {
+                showToast('Платёж не завершён', '⚠️');
+            }
+        } catch (_) {
+            showToast('Ошибка платежа — попробуй ещё', '⚠️');
+        } finally {
+            donateBusy = false;
         }
     }
 
@@ -1153,8 +1271,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         lastScore = 0;
         reviveCount = 0;
         reviveBusy = false;
+        // Статистика партии для сюжетной миссии 🎯 — сбрасывается при запуске уровня
+        missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         saveState(state);
         updateHeader();
+        renderMission();
 
         const lv = currentLevelDef();
 
@@ -1193,14 +1314,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 updateStats();
+                // Сюжетная миссия 🎯: очки за партию для прогресса
+                missionStats.score = Math.max(missionStats.score, score);
+                renderMission();
                 // Вибрация только при слиянии (рост очков) — iOS/Android
                 if (platform.isNative && score > prev) hapticLight();
             },
             onMove:  () => {
                 if (state.sound !== false) playMove();
                 state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+                // Сюжетная миссия 🎯: ходы за партию
+                missionStats.moves = (missionStats.moves || 0) + 1;
                 updateTideIndicator();
                 updateThreatIndicator();
+                renderMission();
             },
             onTide:  (swept) => {
                 // Прилив смыл нижние ряды: вспышка индикатора + уведомление о возврате очков
@@ -1228,8 +1355,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (reward.doubloons > 0) {
                     addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
                 }
+                // Сюжетная миссия 🎯: слияния, лучший комбо и лучшая серия за партию
+                missionStats.merges = (missionStats.merges || 0) + (n || 1);
+                missionStats.bestCombo = Math.max(missionStats.bestCombo, n || 0);
+                missionStats.bestStreak = Math.max(missionStats.bestStreak, game.streak || 0);
+                renderMission();
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); },
             onTarget: (score) => {
                 // Бесконечный режим: цель достигнута — празднуем и продолжаем
                 if (state.sound !== false) playWin();
@@ -1309,7 +1441,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         lastScore = 0;
         reviveCount = 0;
         reviveBusy = false;
+        // Новая партия на том же уровне — статистика сюжетной миссии сбрасывается
+        missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         game.init();
+        renderMission();
         // Перк «Бонусная плитка»: новая партия начинается с плиткой 4
         if (ownsPerk(state, 'bonusTile')) {
             game.addBonusTile(4);
@@ -1462,6 +1597,67 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Выбор уровня ─────────────────────────────────────────
 
+    // ── Карта глубин 🗺️ (визуальный выбор уровня вместо списка) ──
+    function renderDepthsMap() {
+        if (!depthsNodesEl) return;
+
+        // Бейдж «есть награды за глубины»
+        const pending = pendingDepthRewards(state);
+        if (depthsBadgeEl) {
+            depthsBadgeEl.hidden = pending === 0;
+            depthsBadgeEl.textContent = `🎁 +${pending} награды`;
+        }
+
+        depthsNodesEl.innerHTML = '';
+        DEPTH_NODES.forEach((node) => {
+            const lv = levelById(node.id);
+            const status = depthStatus(state, node.id);
+            const unlocked = status !== 'locked';
+
+            const el = document.createElement('div');
+            el.className = ['dm-node', status].filter(Boolean).join(' ');
+            el.style.left = node.x + '%';
+            el.style.top  = node.y + '%';
+            el.title = `${lv.name} · ${lv.size}×${lv.size} → ${lv.target.toLocaleString('ru')}`;
+
+            const reward = canClaimDepthReward(state, node.id)
+                ? `<button class="dm-reward" type="button">🎁 ${depthRewardFor(node.id)}</button>`
+                : '';
+            const best = state.bestScores[node.id]
+                ? `<span class="dm-best">🏆 ${state.bestScores[node.id].toLocaleString('ru')}</span>`
+                : '';
+
+            el.innerHTML = `
+                <div class="dm-dot">${status === 'locked' ? '🔒' : lv.rank}</div>
+                <div class="dm-label">${lv.name}</div>
+                ${best}
+                ${reward}
+            `;
+
+            if (unlocked) {
+                el.addEventListener('click', () => {
+                    hideModal(levelModal);
+                    startLevel(node.id);
+                });
+            }
+
+            // Забрать награду за глубину (клик по кнопке не запускает уровень)
+            const claimBtn = el.querySelector('.dm-reward');
+            if (claimBtn) {
+                claimBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const got = claimDepthReward(state, node.id);
+                    saveState(state);
+                    updateDoubloons();
+                    if (got > 0) showToast(`+${got} жемчужин за глубину!`, '🎁');
+                    renderDepthsMap();
+                });
+            }
+
+            depthsNodesEl.appendChild(el);
+        });
+    }
+
     function buildLevelsGrid() {
         levelsGrid.innerHTML = '';
 
@@ -1504,7 +1700,137 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function openLevelModal() {
         buildLevelsGrid();
+        renderDepthsMap();
+        renderDailyPuzzle();
         showModal(levelModal);
+    }
+
+    // ── Ежедневная головоломка 🧩 (Wordle-механика: одна доска на всех в день) ──
+    function renderDailyPuzzle() {
+        if (!dpEl) return;
+        const info = puzzleInfo(state);
+        if (dpDate)   dpDate.textContent = info.date;
+        if (dpTarget) dpTarget.textContent = info.target.toLocaleString('ru');
+        if (dpBest)   dpBest.textContent = (info.best || 0).toLocaleString('ru');
+        if (dpDone)   dpDone.hidden = !info.completed;
+        if (dpDesc)   dpDesc.textContent = info.completed
+            ? 'Головоломка сегодня пройдена. Новая доска завтра!'
+            : `Собери плитку ${info.target.toLocaleString('ru')}. Одна и та же доска у всех игроков сегодня — сравни результат с друзьями!`;
+        if (dpPlay) {
+            dpPlay.disabled = false;
+            dpPlay.textContent = info.completed ? '🌊 Сыграть снова' : '🌊 Играть';
+        }
+    }
+
+    /** Запустить ежедневную головоломку с детерминированной доской (общий сид). */
+    function startDailyPuzzle() {
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        hideModal(levelModal);
+
+        ensureDailyPuzzle(state);
+        saveState(state);
+
+        const info = puzzleInfo(state);
+        state.currentLevel = 0; // маркер «ежедневная головоломка» (не уровень)
+        lastScore = 0;
+        reviveCount = 0;
+        reviveBusy = false;
+        saveState(state);
+        updateHeader();
+        // В ежедневной головоломке сюжетной миссии нет — скрываем прогресс-бар
+        renderMission();
+
+        // Детерминированная стартовая доска дня (одна у всех игроков)
+        const startTiles = puzzleStartBoard();
+        game = new Game({
+            boardElement:  boardEl,
+            size:          info.size,
+            target:        info.target,
+            infinity:      false,
+            tide:          null, // в головоломке — чистый 2048, без прилива
+            moves:         null,
+            appearanceMultiplier: 1,
+            fourChance:    0.1,
+            // Общий сид: все последующие плитки выпадают детерминированно.
+            random:        makeRng(seedFromDate()),
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove:  () => {
+                if (state.sound !== false) playMove();
+                state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+            },
+            onTide:  null,
+            onThreat: null,
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
+                const reward = comboReward({ merges: n, streak: game.streak });
+                if (reward.score > 0) {
+                    game.addScore(reward.score);
+                    showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
+                }
+                if (reward.doubloons > 0) {
+                    addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
+                }
+            },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); },
+            onTarget: () => {},
+            onWin: (score) => {
+                const isNewBest = recordPuzzleResult(state, { score, maxTile: game.getMaxTile() });
+                if (isNewBest) {
+                    addDoubloons(info.reward, 'ежедневная головоломка', '🧩');
+                    state.dailyCounters.wins = (state.dailyCounters.wins || 0) + 1;
+                }
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playWin();
+                spawnConfetti(90, true);
+                const completed = puzzleInfo(state).completed;
+                showWinModal(score, false);
+                // Переопределим заголовок модалки под головоломку
+                modalIcon.textContent  = completed ? '🧩' : '🎉';
+                modalTitle.textContent = completed ? 'Головоломка пройдена!' : 'Плитка собрана!';
+                modalMessage.textContent = completed
+                    ? `Собери ${info.target.toLocaleString('ru')} — цель дня достигнута! +${info.reward} жемчужин.`
+                    : `Ты собрал ${info.target.toLocaleString('ru')}! Приходи завтра за новой доской.`;
+            },
+            onGameOver: (score) => {
+                recordPuzzleResult(state, { score, maxTile: game.getMaxTile() });
+                saveState(state);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (state.sound !== false) playGameOver();
+                showGameOverModal(score);
+            },
+        });
+
+        // Устанавливаем детерминированную стартовую доску дня
+        game.tiles = startTiles.map((t) => {
+            if (!t) return null;
+            return { id: game._nextTileId++, value: t.value, justSpawned: true };
+        });
+        game._updateGridCSS();
+        game.render();
+
+        state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+        saveState(state);
+        updateStats();
+        updateUndoState();
+        updateMoves();
+        updateTideIndicator();
+        updateThreatIndicator();
+        updateBoostBar();
+        // П. 1.19.3: запуск головоломки — начало игрового процесса.
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
     }
 
     // ── Настройки ────────────────────────────────────────────
@@ -1743,6 +2069,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     levelModal.addEventListener('click', (e) => {
         if (e.target === levelModal) hideModal(levelModal);
     });
+    // Ежедневная головоломка 🧩 — кнопка в карте уровней
+    if (dpPlay) dpPlay.addEventListener('click', startDailyPuzzle);
 
     gameModal.addEventListener('click', (e) => {
         if (e.target === gameModal) hideModal(gameModal);
@@ -1753,9 +2081,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!leaderboardModal || !leaderboardList) return;
         // VK: клиентского чтения таблицы нет — открываем системную таблицу
         // (друзья/все) через VKWebAppShowLeaderBoardBox с текущим результатом.
+        // Если таблица не открылась (например, ещё нет записи secure.addAppEvent) —
+        // показываем локальную таблицу как фолбэк.
         if (sdk.host === 'vk') {
-            sdk.showLeaderboard(state.bestTotal || 0, state.currentLevel);
-            return;
+            const ok = await sdk.showLeaderboard(state.bestTotal || 0, state.currentLevel);
+            if (ok) return;
+            showToast('Системная таблица недоступна — показываем локальный рейтинг', '🏆');
         }
         showModal(leaderboardModal);
         leaderboardList.innerHTML = '<div class="lb-loading">⏳ Загружаем рейтинг…</div>';
@@ -1847,14 +2178,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (requestBtn) requestBtn.addEventListener('click', () => runSocial(async () => {
         const best = state.bestTotal || 0;
         const msg = `🌊 Я набрал ${best.toLocaleString('ru')} очков в «Океан 2048». Сможешь больше?`;
-        const ok = await sdk.showRequest(undefined, msg);
+        const ok = await sdk.showRequest(undefined, msg, 'ocean2048_challenge');
         showToast(ok ? 'Вызов отправлен!' : 'Не удалось отправить вызов', ok ? '💪' : '⚠️');
     }));
 
     if (storyBtn) storyBtn.addEventListener('click', () => runSocial(async () => {
         const best = state.bestTotal || 0;
+        // Фон истории: на VK нельзя хостить истории по URL из мини-приложения,
+        // поэтому используем однотонный фон + текст-стикер от первого лица.
         const ok = await sdk.showStory({
-            text: `Мой рекорд — ${best.toLocaleString('ru')} 🌊 Океан 2048`,
+            text: `Я набрал ${best.toLocaleString('ru')} очков в «Океан 2048»! Сможешь больше? 🌊`,
+            link: location.href.split('#')[0].split('?')[0],
         });
         showToast(ok ? 'История опубликована!' : 'Не удалось открыть истории', ok ? '📸' : '⚠️');
     }));
@@ -1905,6 +2239,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     if (chestOpenBtn)      chestOpenBtn.addEventListener('click', handleOpenChest);
     if (exchangeBtn)       exchangeBtn.addEventListener('click', handleExchange);
+    // Сюжетная миссия 🎯: кнопка «Забрать» за выполнение
+    if (missionClaim)      missionClaim.addEventListener('click', claimMission);
     if (dlClaimBtn)        dlClaimBtn.addEventListener('click', claimDailyLoginReward);
     if (dlClose) dlClose.addEventListener('click', () => {
         if (dailyLoginEl) dailyLoginEl.hidden = true;

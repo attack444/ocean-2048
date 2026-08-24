@@ -1,0 +1,38 @@
+<%- include('../partials/head', { title: title, user: user, site: site, description: description }) %>
+<h1>Реквизиты</h1>
+<p class="muted" style="margin-bottom:20px">Самозанятый · Налог на профессиональный доход (НПД)</p>
+
+<div class="legal-doc">
+  <p><strong>Дата публикации:</strong> <%= new Date().toLocaleDateString('ru-RU') %></p>
+
+  <h3>Продавец</h3>
+  <table>
+    <tr><th>Ф.И.О.</th><td><%= legal.fullName %></td></tr>
+    <tr><th>Статус</th><td><%= legal.status %></td></tr>
+    <tr><th>ИНН</th><td><%= legal.inn %></td></tr>
+    <tr><th>Адрес</th><td><%= legal.address %></td></tr>
+    <tr><th>Email</th><td><a href="mailto:<%= legal.email %>"><%= legal.email %></a></td></tr>
+  </table>
+
+  <h3>Банковские реквизиты для выплат</h3>
+  <table>
+    <tr><th>Банк получателя</th><td><%= legal.bankName || '—' %></td></tr>
+    <tr><th>БИК</th><td><%= legal.bankBik || '—' %></td></tr>
+    <tr><th>Корр. счёт банка</th><td><%= legal.bankCorr || '—' %></td></tr>
+    <tr><th>Счёт получателя</th><td><%= legal.bankAccount || '—' %></td></tr>
+  </table>
+
+  <h3>Контакты</h3>
+  <p>По вопросам оплаты и сотрудничества — <a href="mailto:<%= legal.email %>"><%= legal.email %></a>.</p>
+</div>
+
+<style>
+  .legal-doc { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:20px 24px; }
+  .legal-doc table { border-collapse: collapse; width:100%; margin-top:8px; }
+  .legal-doc th, .legal-doc td { border:1px solid #30363d; padding:8px 12px; text-align:left; vertical-align:top; }
+  .legal-doc th { background:#1f242c; color:#8b949e; font-weight:600; width:200px; }
+  .legal-doc h3 { margin:24px 0 8px; color:#58a6ff; }
+  .legal-doc p { margin:6px 0; }
+  @media (max-width: 600px) { .legal-doc th { width:auto; display:block; } .legal-doc td { display:block; } }
+</style>
+<%- include('../partials/foot') %>
