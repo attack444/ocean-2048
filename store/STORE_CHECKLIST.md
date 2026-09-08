@@ -101,12 +101,19 @@
   (`android/app/src/main/assets/public`, `ios/App/App/public`) получили новые механики
   «Глубины ядра» 6/6 (Прилив и отлив 🌊↔️, зрелищные эффекты, расширенный «живой океан»,
   визуал акулы) + фикс ebbtide. Нативные ассеты готовы к сборке.
-- [ ] ⚠️ **Пересобрать AAB** — предыдущий собран 2026-09-01 и **не содержит** новых
-  механик «Глубины ядра» 6/6. Сборка **только на машине с Android Studio + Java + SDK**
-  (на текущей машине Java/Android SDK не установлены; `local.properties`/`keystore.properties`
-  указывали на несуществующий `d:\pirat` — пути исправлены 2026-09-08).
-  Шаги: `npm run sync` (уже сделано) → Android Studio → Build → Generate Signed Bundle
-  (или CLI: `gradlew bundleRelease` при настроенном `keystore.properties`).
+- [x] ✅ **AAB пересобран локально (2026-09-08)** и содержит новые механики «Глубины ядра»
+  6/6 + фикс ebbtide + новые launcher-иконки (ответ модерации RuStore):
+  `android/app/build/outputs/bundle/release/app-release.aab` (**14 841 258 байт ≈ 14.2 МБ**).
+  Подписан keystore `tools/keystore/rustore-upload.jks` (SHA256withRSA, 2048-bit,
+  CN=Ocean 2048 / O=NeoBrain, действителен до 2054-01-17) — верифицировано `jarsigner`.
+  Сборка CLI: `npm run sync` → `gradlew bundleRelease` (JAVA_HOME=`tools/jdk-21.0.12.1+1`,
+  GRADLE_USER_HOME=`tools/gradle-cache`).
+  ⚠️ Тулчейн **уже есть локально** в `tools/` (JDK 21 Temurin + Android SDK android-35 +
+  build-tools 34/35 + gradle-кэш) — установка не требуется. Для сборки на пути с кириллицей
+  `D:\Рабочая\pirat` в `android/gradle.properties` добавлены `android.overridePathCheck=true`
+  и `-Dfile.encoding=UTF-8` в `org.gradle.jvmargs`; `keystore.properties` использует
+  **относительный** путь `../../tools/keystore/rustore-upload.jks` (абсолютный кириллический
+  путь ломается из-за ISO-8859-1 в `Properties.load`).
 - [ ] iOS: собрать на macOS (Xcode → Archive → Distribute)
   ⚠️ Перед сборкой выполнять `npm run sync` (веб-ассеты в `www/` gitignored)
 - [ ] Проверить, что название/скриншоты соответствуют игре (Guideline 2.3.7)
@@ -147,6 +154,8 @@
 - [x] Keystore создан: `tools/keystore/rustore-upload.jks` + `android/keystore.properties`
 - [x] Подписанный AAB собран: `android/app/build/outputs/bundle/release/app-release.aab`
   (версия 1.0 / versionCode 1, SHA256withRSA, верифицирован)
+- [x] ✅ AAB **пересобран 2026-09-08** с новыми launcher-иконками (ответ модерации RuStore)
+  и механиками «Глубины ядра» 6/6 — см. раздел 8 выше.
 - [ ] Заполнить листинг, загрузить иконку/скриншоты/AAB, пройти модерацию
 
 ---

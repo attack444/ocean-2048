@@ -25,29 +25,45 @@
 - ✅ `build/vk/` пересобрана.
 - ✅ `npm run sync` выполнена — нативные ассеты Android/iOS содержат свежий код.
 - ✅ RuStore launcher-иконки заменены на иконку игры (legacy + adaptive full-bleed).
+- ✅ **AAB пересобран локально (08.09)** — `app-release.aab` ≈14.2 МБ, подписан
+  (CN=Ocean 2048), содержит механики «Глубины ядра» 6/6 + новые иконки. См. шаг 1.1.
 - ✅ Всё закоммичено (`51d7968`) и запушено.
 
 ---
 
-## 1. Сначала собери артефакты (на машине с Android Studio + Java + SDK)
+## 1. Сначала собери артефакты
 
-> ⚠️ **AAB нельзя собрать на текущей машине** (нет Java/Android SDK).
-> Сборка — **только на машине с Android Studio**. Пути в
-> `android/local.properties` (sdk.dir) и `android/keystore.properties` (storeFile)
-> уже исправлены под `d:/Рабочая/pirat` (08.09).
+> ✅ **AAB уже пересобран локально (2026-09-08)** — см. шаг 1.1. Тулчейн (JDK 21 Temurin +
+> Android SDK android-35 + build-tools 34/35 + gradle-кэш) **уже есть в `tools/`**,
+> установка не требуется. Повторная сборка нужна только после изменения нативного кода
+> или веб-ассетов.
 
 ### 1.1. Пересобрать AAB (нужно для Google Play и RuStore)
 ```bash
 npm run sync        # обновить www/ → нативные ассеты (уже сделано 08.09, но повторить перед сборкой)
 ```
-Затем в **Android Studio** (или CLI):
-```bash
-cd android
-gradlew bundleRelease
-# → android/app/build/outputs/bundle/release/app-release.aab
+Затем из папки `android/` (CLI, работает на пути с кириллицей `D:\Рабочая\pirat`):
+```bat
+set "JAVA_HOME=d:\Рабочая\pirat\tools\jdk-21.0.12.1+1"
+set "GRADLE_USER_HOME=d:\Рабочая\pirat\tools\gradle-cache"
+gradlew.bat bundleRelease --no-daemon
+:: → android/app/build/outputs/bundle/release/app-release.aab
 ```
 Либо в Android Studio: **Build → Generate Signed Bundle / APK → Android App Bundle**,
 выбрать keystore `tools/keystore/rustore-upload.jks` (пароли в `android/keystore.properties`).
+
+> ✅ **Результат 08.09:** `app-release.aab` = **14 841 258 байт (≈14.2 МБ)**, подписан
+> keystore `tools/keystore/rustore-upload.jks` (SHA256withRSA, 2048-bit, CN=Ocean 2048 /
+> O=NeoBrain, действителен до 2054-01-17) — верифицировано `jarsigner`.
+
+> ⚠️ **Нюансы сборки на пути с кириллицей `D:\Рабочая\pirat`** (уже учтены в репозитории):
+> - `android/gradle.properties`: `android.overridePathCheck=true` (иначе AGP падает на
+>   не-ASCII пути, b.android.com/95744) и `-Dfile.encoding=UTF-8` в `org.gradle.jvmargs`.
+> - `android/keystore.properties`: `storeFile` задан **относительным** путём
+>   `../../tools/keystore/rustore-upload.jks`. Абсолютный кириллический путь ломается:
+>   `java.util.Properties.load(InputStream)` читает в ISO-8859-1 и портит UTF-8 (mojibake),
+>   а `-Dfile.encoding` на это не влияет.
+> - `android/local.properties`: `sdk.dir=d:/Рабочая/pirat/tools/android-sdk`.
 
 > Один и тот же AAB подходит и для Google Play, и для RuStore
 > (package `com.ocean2048.game`, versionCode 1, versionName 1.0).
@@ -146,7 +162,8 @@ npm run build:vk    # → build/vk/
 > ⚠️ **Замечание модерации RuStore:** иконка на витрине не совпадала с иконкой
 > установленного приложения. **Исправлено в коде** (08.09): launcher-иконки
 > заменены на иконку игры (legacy + adaptive full-bleed, скрипт
-> `scripts/gen-android-icons.mjs`). Нужно пересобрать AAB (шаг 1.1) и подать заново.
+> `scripts/gen-android-icons.mjs`). ✅ **AAB с новыми иконками пересобран (08.09)** —
+> загружай свежий файл из шага 1.1 и подавай заново.
 
 1. Регистрация/вход: console.rustore.ru (верификация ИНН — если ещё не сделана).
 2. **«Добавить приложение»** → загрузить свежий AAB (шаг 1.1).
