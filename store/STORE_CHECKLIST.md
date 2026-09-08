@@ -8,6 +8,8 @@
 
 Детальные гайды: [`GOOGLE_PLAY.md`](./GOOGLE_PLAY.md), [`APP_STORE.md`](./APP_STORE.md),
 [`RUSTORE.md`](./RUSTORE.md). План настройки кабинетов и сторов: [`plans/CABINETS_STORES.md`](../plans/CABINETS_STORES.md).
+**Пошаговый порядок действий по консолям (что нажимать и что загружать):**
+[`PUBLISHING_RUNBOOK.md`](./PUBLISHING_RUNBOOK.md).
 
 ---
 
