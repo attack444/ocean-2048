@@ -1672,4 +1672,43 @@ describe('Game abilities (Плитки-способности ⚡)', () => {
         assert.equal(g.gameOver, false);
         assert.equal(g.movesCount, 2);
     });
+describe('Infinity mode (классика: после цели игра продолжается)', () => {
+    it('достижение цели не «залипает» won, и последующий тупик корректно завершает игру', () => {
+        const g = makeGame({ target: 4 });
+        g.infinity = true;
+        g.onTarget = () => {};
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+        g.winCelebrated = false;
+
+        // Шаг 1: достигли цели (2+2 → 4). onTarget уходит в setTimeout (async),
+        // поэтому проверяем синхронные флаги: праздник отмечен, а won НЕ «залипает».
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('left');
+        assert.equal(g.winCelebrated, true);
+        // Ключевое: без исправления won «залипало» true и тупик не наступал вовсе.
+        assert.equal(g.won, false);
+
+        // Шаг 2: партия продолжается; очередной ход приводит к тупику —
+        // game over должен сработать (в отличие от старого поведения).
+        const deadlock = [
+            { id: 11, value: 2 }, { id: 12, value: 4 }, { id: 13, value: 2 }, { id: 14, value: 4 },
+            { id: 15, value: 4 }, { id: 16, value: 2 }, { id: 17, value: 4 }, { id: 18, value: 2 },
+            { id: 19, value: 2 }, { id: 20, value: 4 }, { id: 21, value: 2 }, { id: 22, value: 4 },
+            { id: 23, value: 4 }, { id: 24, value: 2 }, { id: 25, value: 4 }, { id: 26, value: 2 },
+        ];
+        g.tiles = new Array(16).fill(null);
+        g.tiles[0] = { id: 30, value: 2 };
+        // После валидного хода имитируем заполнение доски тупиком.
+        g.onMove = () => { g.tiles = deadlock.map(t => ({ ...t })); };
+        g.handleMove('right'); // плитка 2 уезжает вправо → moved, затем onMove подменяет доску
+        assert.equal(g.gameOver, true);
+    });
+});
 });

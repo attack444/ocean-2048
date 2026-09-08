@@ -1,6 +1,11 @@
-// ======================== Адаптер SDK площадок (VK / Яндекс / Web) ========================
-// Единый интерфейс для VK Mini Apps, Yandex Games и обычного веба (PWA / локальный запуск).
-// Все методы безопасны: на вебе без SDK они «вырождаются» в локальные/пустые операции.
+// Адаптер SDK площадок (VK / Одноклассники / Яндекс / Web).
+// Единый интерфейс для VK Mini Apps, Одноклассников (VK Games), Yandex Games и обычного веба
+// (PWA / локальный запуск). Все методы безопасны: на вебе без SDK они «вырождаются» в локальные/пустые операции.
+//
+// Одноклассники (OK) — часть единой платформы VK Games: игра грузится в iframe ok.ru /
+// WebView m.ok.ru и использует тот же VK Bridge (dev.vk.com → «Публикация в Одноклассниках»).
+// Поэтому хост для OK остаётся 'vk' (все методы VK Bridge работают без изменений), а для
+// различий VK/OK используется флаг sdk.ok (true — запуск именно в Одноклассниках).
 
 const LB_NAME = 'ocean2048_top';
 
@@ -10,9 +15,12 @@ function detectHost() {
     if (forced === 'vk') return 'vk';
     if (forced === 'yandex' || forced === 'ya') return 'yandex';
 
-    // VK Mini Apps: мост уже встроен хостом
+    // VK Mini Apps и Одноклассники (VK Games): мост уже встроен хостом.
+    // Одноклассники (ok.ru / m.ok.ru) используют тот же VK Bridge — хост 'vk'.
     if (window.vkBridge || window.VKWebApp) return 'vk';
     if (params.get('vk_app_id') || params.get('vk_platform') || params.get('vk_user_id')) return 'vk';
+    // OK-параметры запуска (ok.ru передаёт свои идентификаторы/подпись)
+    if (params.get('ok_app_id') || params.get('ok_platform') || params.get('ok_user_id')) return 'vk';
 
     // Yandex Games: SDK встроен через тег <script src="/sdk.js"> в <head> (async)
     // ИЛИ внедрён самой платформой. Платформа Яндекс Игр всегда добавляет в URL
@@ -126,8 +134,20 @@ async function ensureYaGames() {
     return window.ysdk || null;
 }
 
+// Определение Одноклассников по hostname: окно игры может быть в iframe ok.ru
+// (десктоп) или в WebView m.ok.ru (мобильная версия сайта / приложения OK).
+// ВАЖНО: в iframe window.location.hostname — это хост родителя (ok.ru), т.к.
+// платформа OK встраивает игру по адресу https://ok.ru/app/{ID} (как и VK — vk.com/app{ID}).
+function isOkHost() {
+    try {
+        const h = String(location.hostname || '').toLowerCase();
+        return h === 'ok.ru' || h.endsWith('.ok.ru') || h === 'm.ok.ru';
+    } catch (_) { return false; }
+}
+
 export const sdk = {
     host: 'web',          // 'vk' | 'yandex' | 'web'
+    ok: false,            // true — запуск в Одноклассниках (ok.ru/m.ok.ru, хост при этом 'vk')
     vk: null,
     ya: null,
     player: null,
@@ -142,6 +162,9 @@ export const sdk = {
         // LoadingAPI.ready() не вызывался → модерация видела «SDK не встроен»).
         await waitForSdkTagResult(2500);
         this.host = detectHost();
+        // Одноклассники используют тот же VK Bridge: хост 'vk', но флаг ok=true,
+        // чтобы код мог отличать VK от OK (URL запуска ok.ru/app/{ID} vs vk.com/app{ID}).
+        this.ok = this.host === 'vk' && (isOkHost() || /[?&]ok_/.test(String(location.search)));
         if (this.host === 'vk') {
             this.vk = await ensureBridge();
             // VK Mini Apps: обязательный VKWebAppInit — инициализация моста.
@@ -177,6 +200,10 @@ export const sdk = {
     },
 
     isPlatform() { return this.host === 'vk' || this.host === 'yandex'; },
+
+    // Одноклассники (VK Games). При запуске в iframe/WebView OK хост === 'vk'
+    // (тот же VK Bridge), но флаг ok === true. Удобно для точечных отличий UI.
+    isOk() { return this.ok === true; },
 
     // ── Язык (п. 2.14) ─────────────────────────────────────────
     getLang() {
@@ -598,6 +625,8 @@ export const sdk = {
 
     // Параметры запуска мини-приложения: query-параметры + хэш (#).
     // Возвращает объект; vk_request_key — ключ запроса/приглашения от друга.
+    // В Одноклассниках OK передаёт свои параметры (ok_app_id, ok_user_id и т.п.)
+    // — они также попадают в результат как есть.
     getLaunchParams() {
         const params = {};
         try {

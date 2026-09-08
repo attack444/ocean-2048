@@ -47,10 +47,6 @@ export async function applyPlatform() {
     body.classList.toggle('is-ios', platform.name === 'ios');
     body.classList.toggle('is-android', platform.name === 'android');
 
-    if (platform.isNative) {
-        body.classList.add('force-dpad');
-    }
-
     const plugins = cap();
     if (platform.isNative && plugins) {
         try {

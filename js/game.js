@@ -211,6 +211,9 @@ export default class Game {
         const { moved, moves, merges } = this._move(direction);
         if (!moved) return;
 
+        // Эффект «волны» подсветки в направлении хода
+        this._flashWave(direction);
+
         // Буст «Тройные очки»: ходы со слиянием дают ×mult (по умолчанию ×3)
         const gained = this.score - scoreBefore;
         if (this.multiplierMoves > 0 && gained > 0) {
@@ -249,16 +252,19 @@ export default class Game {
             this._addNewTile();
             this.render();
             this.onScoreUpdate(this.score);
-            if (this.onMove) this.onMove();
+            if (this.onMove) this.onMove(direction);
             if (merges > 0 && this.onMerge) this.onMerge(merges);
             if (this.onSave) this.onSave();
 
             if (!this.winCelebrated && this._checkWin()) {
-                this.won           = true;
                 this.winCelebrated = true;
                 if (this.infinity && this.onTarget) {
+                    // Бесконечный режим (классика): цель достигнута — празднуем,
+                    // но НЕ блокируем игру флагом won: партия продолжается и
+                    // тупик (game over) должен корректно определяться дальше.
                     setTimeout(() => this.onTarget(this.score), 350);
                 } else {
+                    this.won = true;
                     setTimeout(() => this.onWin(this.score), 350);
                 }
             } else if (this.moveLimit > 0 && this.movesCount >= this.moveLimit) {
@@ -1464,6 +1470,36 @@ export default class Game {
         return GLYPHS[value] || '🌊';
     }
 
+    /**
+     * Пересчёт геометрии доски и позиций плиток БЕЗ пересоздания DOM.
+     * Нужен, когда размер доски меняется ПОСЛЕ рендера (fitBoard при
+     * показе/скрытии индикаторов, ресайз, скрытие загрузочного экрана):
+     * иначе плитки остаются на старых пиксельных координатах и «съезжают»
+     * со своих клеток.
+     */
+    relayout() {
+        this._layout();
+        if (!this._tileEls || this._tileEls.size === 0) return;
+        // id → индекс: пробегаемся по доске и находим плитки по id
+        const byId = new Map();
+        this.tiles.forEach((t, i) => { if (t) byId.set(t.id, i); });
+        for (const [id, el] of this._tileEls) {
+            const idx = byId.get(id);
+            if (idx === undefined) continue;
+            const { x, y } = this._posForIndex(idx);
+            el.style.width  = this._cell + 'px';
+            el.style.height = this._cell + 'px';
+            el.style.setProperty('--tx', x + 'px');
+            el.style.setProperty('--ty', y + 'px');
+            el.style.transform = `translate(${x}px, ${y}px)`;
+        }
+        // Акула-охотник тоже стоит на клетке — обновляем её позицию.
+        if (this.sharkPos !== null) {
+            const sharkEl = this.boardElement.querySelector(':scope > .shark');
+            if (sharkEl) this._updateSharkEl(sharkEl);
+        }
+    }
+
     /** Анимация скольжения + «отскок» слитых плиток, затем финальный рендер. */
     _animateMove(moves, cb) {
         this._layout();
@@ -1556,5 +1592,29 @@ export default class Game {
         setTimeout(() => {
             if (layer.isConnected) layer.querySelectorAll('.merge-particle').forEach(el => el.remove());
         }, 950);
+    }
+
+    /** Волна подсветки при свайпе: полупрозрачная полоса проносится через доску
+     *  в направлении хода. GPU-анимация (left/top/opacity), отключается при prefers-reduced-motion. */
+    _flashWave(direction) {
+        if (!this.boardElement || !this.boardElement.isConnected) return;
+        if (typeof window === 'undefined') return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+        const el = this.boardElement;
+        el.classList.remove('swipe-wave', 'h', 'v');
+        void el.offsetWidth;
+        // Направления: 0 = вверх, 1 = вправо, 2 = вниз, 3 = влево
+        if (direction === 1 || direction === 3) {
+            el.classList.add('swipe-wave', 'h');
+            el.style.setProperty('--wave-from', direction === 1 ? '-60px' : '105%');
+            el.style.setProperty('--wave-to',   direction === 1 ? '105%' : '-60px');
+        } else {
+            el.classList.add('swipe-wave', 'v');
+            el.style.setProperty('--wave-from', direction === 0 ? '105%' : '-60px');
+            el.style.setProperty('--wave-to',   direction === 0 ? '-60px' : '105%');
+        }
+        clearTimeout(this._waveTimer);
+        this._waveTimer = setTimeout(() => el.classList.remove('swipe-wave', 'h', 'v'), 420);
     }
 }

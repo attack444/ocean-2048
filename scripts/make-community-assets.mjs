@@ -14,12 +14,20 @@
 //   ad-game-1200x627.png          — реклама VK: тизер/промопост (1200×627)
 //   ad-ecosystem-1080x1080.png    — реклама VK: квадрат (1080×1080)
 //   ad-game-1080x1920.png         — реклама VK: история/вертикаль (1080×1920)
-// Запуск:  node scripts/make-community-assets.mjs
+// Запуск:  node scripts/make-community-assets.mjs [--season autumn]
+//   (без флага — базовый «океанский» комплект в store/community/; исходники сохраняются)
+//   --season autumn — осенний сезонный комплект в store/community/autumn/
+//   (тёплая палитра + падающие листья + тёплый градиент акцента; те же тексты и размеры).
 /* global console, process */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderHtmlToPng, ROOT } from './lib/media.mjs';
 
+// Сезонный режим. Осенняя версия актуальна до конца сезона; оригиналы не перезаписываются.
+const SEASON_IDX = process.argv.indexOf('--season');
+const AUTUMN = SEASON_IDX !== -1 && (process.argv[SEASON_IDX + 1] || '').toLowerCase() === 'autumn';
+const OUT_DIR = join(ROOT, 'store', 'community', AUTUMN ? 'autumn' : '');
+// Базовый каталог store/community: для сток-фото и иконки (в осеннем режиме сток не используется).
 const OUT = join(ROOT, 'store', 'community');
 const iconGame = readFileSync(join(ROOT, 'icons', 'icon-512.png')).toString('base64');
 
@@ -27,13 +35,29 @@ const iconGame = readFileSync(join(ROOT, 'icons', 'icon-512.png')).toString('bas
 // Если в store/community/stock/ лежит underwater.jpg — используем его как фон
 // (фото из Unsplash/Pexels, скачанное вручную). Иначе — CSS-«фото» из слоёв:
 // свет из глубины, блики, пузырьки, коралловые силуэты. Никаких внешних запросов.
+// В осеннем режиме — «закатный океан»: тёплый градиент + листья (см. autumnLeaves).
 const STOCK_JPG = join(OUT, 'stock', 'underwater.jpg');
 const STOCK_B64 = existsSync(STOCK_JPG)
   ? readFileSync(STOCK_JPG).toString('base64')
   : null;
 
-// Коралловые силуэты (тёмный низ) — повторяем в CSS-фоне как mask-image (декорактивный низ)
+// Коралловые силуэты (тёмный низ) — повторяем в CSS-фоне как mask-image (декоративный низ)
 function stockLayer({ width, height, cover = false }) {
+  if (AUTUMN) {
+    // Осень: тёплый «закатный» океан (не используем холодное сток-фото)
+    return cover
+      ? `background:
+           radial-gradient(120% 90% at 50% -10%, rgba(255,180,60,.5), transparent 55%),
+           radial-gradient(90% 60% at 12% 88%, rgba(255,120,40,.35), transparent 60%),
+           radial-gradient(120% 100% at 85% 70%, rgba(120,50,10,.9), transparent 62%),
+           linear-gradient(180deg,#4a1a05 0%,#7a3412 38%,#a8551e 62%,#5a2208 100%);
+         position:relative;`
+      : `background:
+           radial-gradient(120% 80% at 78% 12%, rgba(255,180,60,.45), transparent 55%),
+           radial-gradient(90% 70% at 90% 78%, rgba(255,120,40,.3), transparent 60%),
+           linear-gradient(90deg,#4a1a05 0%,#7a3412 42%,#a8551e 66%,#8a441a 100%);
+         position:relative;`;
+  }
   if (cover) {
     // Полноэкранная фото-подложка: покрывает весь кадр, затемнение сверху для текста
     return STOCK_B64
@@ -70,14 +94,37 @@ function bubbles({ width, height, n = 10, seed = 7 }) {
   return out;
 }
 
+// Падающие листья (осенний режим) — эмодзи-частицы поверх кадра
+function autumnLeaves({ width, height, n = 18, seed = 42 }) {
+  const emojis = ['🍁', '🍂', '🍃'];
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const x = ((seed * 31 + i * 47) % 100) / 100;
+    const y = ((seed * 17 + i * 23) % 100) / 100;
+    const s = Math.max(16, Math.round(width * 0.02) + ((seed * 7 + i * 13) % Math.round(width * 0.03)));
+    const o = 0.3 + ((seed * 5 + i * 9) % 50) / 100;
+    const emoji = emojis[(seed + i) % emojis.length];
+    out += `<div style="position:absolute;left:${(x * width).toFixed(0)}px;top:${(y * height).toFixed(0)}px;font-size:${s}px;opacity:${o.toFixed(2)};transform:rotate(${((seed + i) * 23) % 180 - 90}deg);z-index:1">${emoji}</div>`;
+  }
+  return out;
+}
+
 // ---------- Общий каркас ----------
 function shell({ width, height, accent, mode = 'ocean', children, brand = true, photo = false }) {
-  const accents = {
-    game: '#ffc93c',      // янтарный — Океан 2048
-    studio: '#76b900',    // зелёный — 5MB2 (студия)
-    neobrain: '#818cf8',  // индиго — NeoBrain
-    ocean: '#22d3ee',     // бирюза — экосистема
-  };
+  // Осень: тёплые акценты (янтарь/оранжевый), сохраняя оттенок бренда для 5MB2/NeoBrain
+  const accents = AUTUMN
+    ? {
+        game: '#ffb020',      // тёплый янтарь — Океан 2048
+        studio: '#ff9d2e',    // тёплый оранжевый — студия
+        neobrain: '#ffb84d',  // мягкий жёлто-оранжевый — NeoBrain
+        ocean: '#ffb84d',     // тёплый — экосистема
+      }
+    : {
+        game: '#ffc93c',      // янтарный — Океан 2048
+        studio: '#76b900',    // зелёный — 5MB2 (студия)
+        neobrain: '#818cf8',  // индиго — NeoBrain
+        ocean: '#22d3ee',     // бирюза — экосистема
+      };
   const a = accents[accent] || accents.ocean;
   const grid = mode === 'neobrain'
     ? `linear-gradient(rgba(129,140,248,.14) 1px,transparent 1px) 0 0/44px 44px,
@@ -86,12 +133,19 @@ function shell({ width, height, accent, mode = 'ocean', children, brand = true, 
   // Фон: если photo — подводная подложка, иначе фирменный градиент
   const bg = photo
     ? stockLayer({ width, height })
-    : `background:
-        radial-gradient(1000px 560px at 12% -10%, ${a}33, transparent 55%),
-        radial-gradient(800px 480px at 95% -4%, rgba(99,102,241,.20), transparent 50%),
-        ${grid}
-        linear-gradient(135deg,#0c2033 0%,#0a2a4a 55%,#071827 100%);`;
+    : AUTUMN
+      ? `background:
+          radial-gradient(1000px 560px at 12% -10%, rgba(255,180,60,.4), transparent 55%),
+          radial-gradient(800px 480px at 95% -4%, rgba(255,120,40,.25), transparent 50%),
+          ${grid}
+          linear-gradient(135deg,#3d1605 0%,#6b2c0c 55%,#421a06 100%);`
+      : `background:
+          radial-gradient(1000px 560px at 12% -10%, ${a}33, transparent 55%),
+          radial-gradient(800px 480px at 95% -4%, rgba(99,102,241,.20), transparent 50%),
+          ${grid}
+          linear-gradient(135deg,#0c2033 0%,#0a2a4a 55%,#071827 100%);`;
   const bubblesHtml = photo ? bubbles({ width, height }) : '';
+  const seasonDecor = AUTUMN ? autumnLeaves({ width, height }) : bubblesHtml;
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:${width}px;height:${height}px;overflow:hidden;
@@ -101,21 +155,27 @@ function shell({ width, height, accent, mode = 'ocean', children, brand = true, 
     color:#fff;position:relative;
   }
   .glow{position:absolute;right:-140px;top:-140px;width:560px;height:560px;border-radius:50%;
-    background:radial-gradient(circle,rgba(34,211,238,.32),transparent 60%)}
+    background:${AUTUMN
+      ? 'radial-gradient(circle,rgba(255,190,90,.4),transparent 60%)'
+      : 'radial-gradient(circle,rgba(34,211,238,.32),transparent 60%)'}}
   .accent{position:absolute;left:0;bottom:0;height:10px;width:100%;
-    background:linear-gradient(90deg,${a},#22d3ee)}
+    background:linear-gradient(90deg,${a},${AUTUMN ? '#ff8c2e' : '#22d3ee'})}
   .brand{position:absolute;left:34px;bottom:26px;display:flex;align-items:center;gap:12px;z-index:6}
   .brand .logo{width:${Math.round(width * 0.05)}px;height:${Math.round(width * 0.05)}px;border-radius:10px;
-    background:linear-gradient(135deg,#1c6ea4,#0a2a4a);border:2px solid ${a};
+    background:${AUTUMN
+      ? 'linear-gradient(135deg,#b3531a,#5a2208)'
+      : 'linear-gradient(135deg,#1c6ea4,#0a2a4a)'};border:2px solid ${a};
     display:flex;align-items:center;justify-content:center;font-weight:900;font-size:${Math.round(width * 0.022)}px;color:${a}}
   .brand .nm{font-size:${Math.round(width * 0.018)}px;font-weight:700;letter-spacing:4px;color:#e2e8f0}
   .brand .nm small{display:block;font-size:${Math.round(width * 0.012)}px;font-weight:400;letter-spacing:2px;color:#7d8a9a;margin-top:2px}
-  .grad-text{background:linear-gradient(90deg,${a},#22d3ee);
+  .grad-text{background:${AUTUMN
+    ? `linear-gradient(90deg,${a},#ff8c2e)`
+    : `linear-gradient(90deg,${a},#22d3ee)`};
     -webkit-background-clip:text;background-clip:text;color:transparent}
   ${children}
 </style></head><body>
   <div class="glow"></div>
-  ${bubblesHtml}
+  ${seasonDecor}
   ${brand ? `<div class="brand"><div class="logo">5M</div>
     <div class="nm">5MB2&nbsp;Digital<small>студия · SaaS · игры</small></div></div>` : ''}
   <div class="accent"></div>
@@ -410,7 +470,7 @@ function ecoHtml() {
 }
 
 async function main() {
-  console.log('Ассеты сообщества →', OUT);
+  console.log(`${AUTUMN ? 'Осенний сезонный комплект' : 'Ассеты сообщества'} →`, OUT_DIR);
   const jobs = [
     // --- Обложка и аватары ---
     ['cover-1590x400.png', 1590, 400, coverHtml()],
@@ -419,8 +479,10 @@ async function main() {
 
     // --- Промо-посты в ленту (1200×630) ---
     ['promo-game.png', 1200, 630, promo({
-      accent: 'game', kicker: 'Новая игра студии 5MB2',
-      title: 'Океан 2048', sub: 'Соединяй плитки, собирай <b>2048</b> и исследуй 7 глубин океана',
+      accent: 'game', kicker: AUTUMN ? '🍁 Осень в Океане 2048' : 'Новая игра студии 5MB2',
+      title: 'Океан 2048', sub: AUTUMN
+        ? 'Соединяй плитки, собирай <b>2048</b> и исследуй 7 глубин — в осенних тонах'
+        : 'Соединяй плитки, собирай <b>2048</b> и исследуй 7 глубин океана',
       cta: 'Играть в VK', game: true,
     })],
     ['promo-studio.png', 1200, 630, promo({
@@ -437,8 +499,10 @@ async function main() {
 
     // --- Квадратные посты (1080×1080) ---
     ['post-game-1080x1080.png', 1080, 1080, squarePost({
-      accent: 'game', kicker: 'Играй в VK',
-      title: 'Океан 2048', sub: 'Собирай <b>2048</b>, исследуй 7 глубин и стань Хозяином Моря',
+      accent: 'game', kicker: AUTUMN ? '🍁 Осеннее обновление' : 'Играй в VK',
+      title: 'Океан 2048', sub: AUTUMN
+        ? 'Собирай <b>2048</b>, исследуй 7 глубин и встречай осень в игре'
+        : 'Собирай <b>2048</b>, исследуй 7 глубин и стань Хозяином Моря',
       cta: 'Играть в VK', game: true,
     })],
     ['post-ecosystem-1080x1080.png', 1080, 1080, squarePost({
@@ -449,8 +513,10 @@ async function main() {
 
     // --- Истории (1080×1920) ---
     ['story-game-1080x1920.png', 1080, 1920, storyHtml({
-      accent: 'game', kicker: 'Играй в VK',
-      title: 'Океан 2048', sub: 'Собирай 2048 и исследуй 7 глубин океана',
+      accent: 'game', kicker: AUTUMN ? '🍁 Осень в игре' : 'Играй в VK',
+      title: 'Океан 2048', sub: AUTUMN
+        ? 'Собирай 2048 и исследуй 7 глубин — под звуки осеннего океана'
+        : 'Собирай 2048 и исследуй 7 глубин океана',
       cta: 'Играть сейчас', game: true,
     })],
     ['story-ecosystem-1080x1920.png', 1080, 1920, storyHtml({
@@ -461,8 +527,10 @@ async function main() {
 
     // --- Рекламные креативы VK Рекламы ---
     ['ad-game-1200x627.png', 1200, 627, ad({
-      variant: '1200x627', accent: 'game', kicker: 'Океан 2048 · VK',
-      title: '2048 в подводном мире', sub: 'Соединяй плитки, открывай глубины. <b>Бесплатно</b> в VK',
+      variant: '1200x627', accent: 'game', kicker: AUTUMN ? 'Океан 2048 · осень' : 'Океан 2048 · VK',
+      title: '2048 в подводном мире', sub: AUTUMN
+        ? 'Соединяй плитки, открывай глубины. Осенняя атмосфера. <b>Бесплатно</b>'
+        : 'Соединяй плитки, открывай глубины. <b>Бесплатно</b> в VK',
       cta: 'Играть', game: true,
     })],
     ['ad-ecosystem-1080x1080.png', 1080, 1080, ad({
@@ -477,7 +545,7 @@ async function main() {
     })],
   ];
   for (const [name, w, h, html] of jobs) {
-    await renderHtmlToPng({ html, width: w, height: h, outPath: join(OUT, name), waitMs: 350 });
+    await renderHtmlToPng({ html, width: w, height: h, outPath: join(OUT_DIR, name), waitMs: 350 });
   }
   console.log('Готово.');
 }

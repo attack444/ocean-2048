@@ -8,6 +8,7 @@ import {
     openChest,
     exchangePointsForDoubloons,
     exchangeUsedToday,
+    creditGamePoints,
     todayKey,
     DONATE_PACKS,
 } from './chest.js';
@@ -147,6 +148,54 @@ describe('chest.exchangePointsForDoubloons', () => {
     it('todayKey produces YYYY-MM-DD', () => {
         assert.match(todayKey(new Date(2026, 0, 5)), /^2026-01-05$/);
         assert.match(todayKey(new Date(2026, 11, 31)), /^2026-12-31$/);
+    });
+});
+
+describe('chest.creditGamePoints', () => {
+    it('credits the full score when nothing was credited yet', () => {
+        const st = baseState({ pointsBalance: 5000 });
+        const res = creditGamePoints(st, 1234);
+        assert.deepEqual(res, { gained: 1234, total: 1234 });
+        assert.equal(st.pointsBalance, 6234);
+    });
+    it('credits only the delta when part of the score is already credited', () => {
+        // Победа → «Продолжить» → game over: повторное завершение той же партии
+        const st = baseState({ pointsBalance: 5000 });
+        const first = creditGamePoints(st, 2000);
+        assert.equal(first.gained, 2000);
+        // Счёт вырос до 3000 — зачисляется только разница, без задвоения
+        const second = creditGamePoints(st, 3000, first.total);
+        assert.deepEqual(second, { gained: 1000, total: 3000 });
+        assert.equal(st.pointsBalance, 5000 + 2000 + 1000);
+    });
+    it('never credits twice for the same final score', () => {
+        const st = baseState({ pointsBalance: 5000 });
+        creditGamePoints(st, 1500);
+        const again = creditGamePoints(st, 1500, 1500);
+        assert.deepEqual(again, { gained: 0, total: 1500 });
+        assert.equal(st.pointsBalance, 6500);
+    });
+    it('handles zero, negative and non-numeric scores safely', () => {
+        const st = baseState({ pointsBalance: 5000 });
+        assert.deepEqual(creditGamePoints(st, 0), { gained: 0, total: 0 });
+        assert.deepEqual(creditGamePoints(st, -5), { gained: 0, total: 0 });
+        assert.deepEqual(creditGamePoints(st, NaN), { gained: 0, total: 0 });
+        assert.deepEqual(creditGamePoints(st, undefined), { gained: 0, total: 0 });
+        assert.equal(st.pointsBalance, 5000); // баланс не тронут
+    });
+    it('floors fractional scores like game addScore does', () => {
+        const st = baseState({ pointsBalance: 5000 });
+        creditGamePoints(st, 25.9);
+        assert.equal(st.pointsBalance, 5025);
+    });
+    it('works when state lacks the field and tolerates null state', () => {
+        const st = baseState();
+        delete st.pointsBalance;
+        const res = creditGamePoints(st, 400);
+        assert.equal(res.gained, 400);
+        assert.equal(st.pointsBalance, 400);
+
+        assert.deepEqual(creditGamePoints(null, 100), { gained: 0, total: 0 });
     });
 });
 

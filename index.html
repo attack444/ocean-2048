@@ -34,11 +34,40 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+    <script>
+        // Раннее применение сохранённой темы и скина — до первого рендера,
+        // чтобы не «мигала» дефолтная бирюзовая палитра (вау-эффект запуска).
+        try {
+            const _st = JSON.parse(localStorage.getItem('ocean2048_v1') || '{}');
+            document.body.classList.add(
+                'theme-' + (_st.theme || 'dark'),
+                'skin-' + (_st.skin || 'gold')
+            );
+        } catch (_) {
+            document.body.classList.add('theme-dark', 'skin-gold');
+        }
+        // Осенний сезон (август–ноябрь): тёплый загрузочный экран с листьями
+        // с первого кадра, даже если игрок ещё не включил тему «Осень».
+        try {
+            const _m = new Date().getMonth();
+            if (_m >= 7 && _m <= 10) document.body.classList.add('autumn-season');
+        } catch (_) {}
+    </script>
+
     <!-- ── Фон: пузырьки за игровой доской (Фаза 1, выкл. при reduce-motion) ── -->
     <div id="bubbles" class="bubbles" aria-hidden="true"></div>
 
     <!-- ── Загрузочный экран (требование VK / Yandex) ─────────── -->
     <div id="loading-screen" class="loading-screen">
+        <!-- Осенние листья на загрузочном экране (CSS-анимация, выкл. при reduce-motion) -->
+        <div class="loading-leaves" aria-hidden="true">
+            <span class="leaf leaf-1">🍁</span>
+            <span class="leaf leaf-2">🍂</span>
+            <span class="leaf leaf-3">🍃</span>
+            <span class="leaf leaf-4">🍁</span>
+            <span class="leaf leaf-5">🍂</span>
+            <span class="leaf leaf-6">🍃</span>
+        </div>
         <div class="loading-inner">
             <div class="loading-emoji">🌊</div>
             <div class="loading-title">Океан 2048</div>
@@ -101,6 +130,12 @@
             <div class="level-info">
                 <span id="level-name" class="level-name">🐚 Ракушка</span>
                 <span class="level-target-wrap">Цель: <strong id="level-target">256</strong></span>
+            </div>
+
+            <!-- Режим игры: Глубины (основная игра) / Классика (чистый 2048) -->
+            <div class="mode-switch" role="tablist" aria-label="Режим игры">
+                <button id="mode-depth" class="mode-btn active" role="tab" aria-selected="true">🌊 Глубины</button>
+                <button id="mode-classic" class="mode-btn" role="tab" aria-selected="false">🎮 Классика</button>
             </div>
         </header>
 
@@ -171,17 +206,10 @@
                 <span class="challenge-count" id="challenge-count">–</span>
             </div>
 
-            <div id="board" class="board size-4"></div>
-
-            <!-- D-pad — видим только на тач-устройствах -->
-            <div class="dpad" aria-label="Управление">
-                <button class="dpad-btn" id="dpad-up"    aria-label="Вверх">▲</button>
-                <div class="dpad-row">
-                    <button class="dpad-btn" id="dpad-left"  aria-label="Влево">◄</button>
-                    <div class="dpad-center">🐚</div>
-                    <button class="dpad-btn" id="dpad-right" aria-label="Вправо">►</button>
-                </div>
-                <button class="dpad-btn" id="dpad-down"  aria-label="Вниз">▼</button>
+            <!-- Обёртка доски: JS подгоняет её размер под свободную высоту экрана,
+                 чтобы квадрат не обрезался (модерация VK п.2 — без скролла). -->
+            <div id="board-wrap" class="board-wrap">
+                <div id="board" class="board size-4"></div>
             </div>
 
             <!-- Кнопки управления -->
@@ -210,7 +238,6 @@
 
     <!-- ── Конфетти и уведомления ──────────────────────────── -->
     <div id="confetti" class="confetti-layer" aria-hidden="true"></div>
-    <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
     <!-- ── Модальное окно: победа / конец игры ──────────────── -->
     <div id="game-modal" class="modal-overlay" role="dialog" aria-modal="true">
@@ -244,6 +271,41 @@
                     <span class="dp-stat dp-done" id="dp-done" hidden>✓ Пройдено</span>
                 </div>
                 <button class="btn btn-primary" id="dp-play-btn">🌊 Играть</button>
+            </div>
+
+            <!-- Ежедневный турнир глубин 🏆 (онлайн): одна доска на всех в день,
+                 «50 ходов на максимум очков». Результат дня уходит в платформенный
+                 лидерборд; пороговые призы в жемчужинах. Возвращает игрока завтра. -->
+            <div class="daily-puzzle tournament-block" id="tournament-block">
+                <div class="dp-head">
+                    <span class="dp-title">🏆 Турнир глубин</span>
+                    <span class="dp-date" id="tournament-date"></span>
+                </div>
+                <div class="dp-desc" id="tournament-desc"></div>
+                <div class="dp-stats">
+                    <span class="dp-stat">Ходы: <strong id="tournament-moves">50</strong></span>
+                    <span class="dp-stat">Лучший результат: <strong id="tournament-best">0</strong></span>
+                </div>
+                <div class="tournament-rewards" id="tournament-rewards"></div>
+                <button class="btn btn-primary" id="tournament-play-btn">🌊 Участвовать</button>
+            </div>
+
+            <!-- Дуэль дня ⚔️ (асинхронная): та же доска у всех, вызов друга на бой.
+                 Счёт соперника приходит через vk_request_key (requestKey вызова). -->
+            <div class="daily-puzzle duel-block" id="duel-block">
+                <div class="dp-head">
+                    <span class="dp-title">⚔️ Дуэль дня</span>
+                    <span class="dp-date" id="duel-date"></span>
+                </div>
+                <div class="dp-desc" id="duel-desc"></div>
+                <div class="dp-stats">
+                    <span class="dp-stat">Ходы: <strong id="duel-moves">50</strong></span>
+                    <span class="dp-stat">Лучший результат: <strong id="duel-best">0</strong></span>
+                </div>
+                <div class="duel-opponent" id="duel-opponent" hidden></div>
+                <div class="duel-stats" id="duel-stats"></div>
+                <button class="btn btn-primary" id="duel-play-btn">🌊 Играть</button>
+                <button class="btn btn-secondary" id="duel-challenge-btn" hidden>⚔️ Вызвать друга</button>
             </div>
 
             <!-- Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель».
@@ -301,6 +363,7 @@
                 <div class="setting-options" id="theme-options">
                     <button class="btn btn-ghost setting-btn" data-theme="dark" data-price="0">🌙 Тёмная</button>
                     <button class="btn btn-ghost setting-btn" data-theme="light" data-price="250">☀️ Светлая</button>
+                    <button class="btn btn-ghost setting-btn" data-theme="autumn" data-price="0">🍁 Осень</button>
                     <button class="btn btn-ghost setting-btn" data-theme="forest" data-price="450">🌲 Лес</button>
                     <button class="btn btn-ghost setting-btn" data-theme="sunset" data-price="1500">🌅 Закат</button>
                     <button class="btn btn-ghost setting-btn" data-theme="abyss" data-price="5000">🌌 Глубина</button>
@@ -328,9 +391,22 @@
                     <span>🔊 Звук</span>
                 </label>
                 <label class="setting-toggle">
+                    <input type="checkbox" id="settings-music">
+                    <span>🎵 Музыка</span>
+                </label>
+                <label class="setting-toggle">
                     <input type="checkbox" id="settings-infinity">
                     <span>♾ Бесконечный режим — играть дальше после цели</span>
                 </label>
+            </div>
+
+            <div class="setting-group">
+                <div class="setting-label">🎵 Музыка</div>
+                <div class="setting-options" id="music-options">
+                    <button class="btn btn-ghost setting-btn music-btn" data-track="ost" data-price="0">🎻 Оригинальный саундтрек</button>
+                    <button class="btn btn-ghost setting-btn music-btn" data-track="off" data-price="0">🔇 Выкл</button>
+                </div>
+                <div class="setting-hint">🎻 «Grand Dark Waltz» (Kevin MacLeod) звучит во всей игре, а «Ancient Mystery Waltz» — в турнире и дуэлях. Музыка — готовая запись, от темы не зависит.</div>
             </div>
 
             <div class="setting-group">
@@ -376,6 +452,11 @@
             <div class="setting-group">
                 <div class="setting-label">🏆 Достижения</div>
                 <div class="achievements-grid" id="achievements-grid"></div>
+            </div>
+
+            <div class="setting-group credits">
+                <div class="setting-label">🎻 Саундтрек</div>
+                <p class="setting-note">«Grand Dark Waltz» и «Ancient Mystery Waltz» — Kevin MacLeod (incompetech.com), лицензия <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
             </div>
 
             <button class="btn btn-ghost" id="close-settings-btn">✕ Закрыть</button>
@@ -461,6 +542,7 @@
                 <div class="exchange-row">
                     <span>Обменов сегодня: <strong id="exchange-used">0 из 3</strong></span>
                 </div>
+                <div class="exchange-note">💡 Очки начисляются за каждую завершённую партию — в любом режиме.</div>
                 <button class="btn btn-primary" id="exchange-btn">🔄 Обменять 500 очков → 1 жемчужина</button>
             </div>
 

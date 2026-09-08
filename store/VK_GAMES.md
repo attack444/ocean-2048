@@ -12,7 +12,12 @@
 - Запуск приложения (iframe, параметры запуска): https://dev.vk.com/ru/mini-apps/launch-game
 - Модерация каталога: https://dev.vk.com/ru/mini-apps/catalog/moderation
 
-Обновлён: 2026-08-22.
+Обновлён: 2026-08-25.
+
+> 🌐 **Одноклассники (OK):** ОК — часть единой платформы VK Games (тот же
+> VK Bridge, тот же кабинет dev.vk.com, то же приложение 54731343). Отдельного
+> кода не нужно — только привязка «OK ID» в настройках и модерация каталога OK.
+> Полный гайд по OK (шаги, чек-лист модерации, CSP): [`OK_GAMES.md`](OK_GAMES.md).
 
 ## Что уже реализовано (SDK-адаптер `js/platform-sdk.js`)
 
@@ -61,8 +66,9 @@
 1. **HTTPS обязателен** — VK не грузит мини-апп по http.
 2. **Заголовок `X-Frame-Options`**: сервер **не должен** слать
    `X-Frame-Options: DENY` или `SAMEORIGIN` (и `Content-Security-Policy: frame-ancestors`,
-   запрещающую VK), иначе iframe VK не отобразит игру. Нужно разрешить
-   `frame-ancestors https://vk.com https://*.vk.com https://*.vk.me`.
+   запрещающую площадку), иначе iframe VK/OK не отобразит игру. Нужно разрешить
+   `frame-ancestors https://vk.com https://*.vk.com https://*.vk.me
+   https://ok.ru https://*.ok.ru https://m.ok.ru` (окружение OK добавлено 2026-08-25).
 3. **`VKWebAppInit` обязателен** — вызывается в `init()` платформенного адаптера.
 4. **Параметры запуска**: VK передаёт в iframe query-параметры
    (`vk_user_id`, `vk_app_id`, `vk_are_ads_enabled`, `vk_is_app_user`, `vk_language`,
@@ -83,6 +89,13 @@ curl -sI https://5mb2.ru/static/games/ocean-2048/index.html | findstr /i "x-fram
 > выставляется, а в CSP вместо `frame-src` добавляется
 > `frame-ancestors 'self' https://vk.com https://*.vk.com https://*.vk.me`.
 > Для остальных страниц (SaaS) защита `X-Frame-Options: DENY` сохранена.
+>
+> ✅ **Обновлено (2026-08-25, для Одноклассников):** в `frame-ancestors`
+> добавлены `https://ok.ru https://*.ok.ru https://m.ok.ru` (OK грузит игру в
+> iframe ok.ru / WebView m.ok.ru) и `https://vk.ru https://m.vk.ru` (новые домены
+> VK). Применено sed-правкой в `security.js` (бэкап `security.js.bak-ok`), образ
+> `deploy-neobrain-web` пересобран, контейнер `neobrain-web` пересоздан.
+> Проверено curl — заголовок отдаётся с `ok.ru`/`*.ok.ru`/`m.ok.ru`.
 
 ## Сборка VK-версии
 
@@ -193,6 +206,7 @@ URL для VK: **https://5mb2.ru/static/games/ocean-2048/index.html**
 • Управление свайпами и кнопками-стрелками — играй как удобно
 • Магазин у рифа: бусты «Перемешать», «Бомба» и «Двойные очки»
 • 6 скинов плиток и 3 темы оформления — меняй внешний вид игры
+• Оригинальный саундтрек (музыка и звук отключаются в настройках)
 • Ежедневные задания и ежедневный бонус с наградами
 • Облачные сохранения: прогресс синхронизируется между устройствами
 • Таблица рекордов — соревнуйся с другими игроками
@@ -313,7 +327,7 @@ npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk
 - [x] Автоопределение хоста VK (`detectHost()`) + загрузка VK Bridge
 - [x] VK Mini App создан: **App ID 54731343** (https://vk.com/app54731343)
 - [x] Конфиг `vk-hosting-config.json` готов для `vk-miniapps-deploy` (App ID 54731343)
-- [x] Проверить, что сервер 5mb2.ru не шлёт `X-Frame-Options`/`CSP frame-ancestors`, блокирующие VK
+- [x] Проверить, что сервер 5mb2.ru не шлёт `X-Frame-Options`/`CSP frame-ancestors`, блокирующие VK; `frame-ancestors` разрешает `vk.com`/`*.vk.com`/`*.vk.me`/`ok.ru`/`*.ok.ru`/`m.ok.ru` (обновлено 2026-08-25)
 - [x] Выполнить деплой на хостинг VK (`npx @vkontakte/vk-miniapps-deploy` — авторизация + код подтверждения из сообщения VK)
 - [x] Получить URL хостинга VK: **https://prod-app54731343-2ec00e9a1ff3.pages-ac.vk-apps.ru/index.html** (HTTP 200)
 - [ ] Указать URL хостинга VK в разделе «Размещение» приложения 54731343 (если ещё не указан)
@@ -325,6 +339,7 @@ npx @vkontakte/vk-miniapps-deploy                  # загружает build/vk
 - [ ] **IAP (код готов):** создать товары «Платежи» в кабинете VK — `donate_small` (10 голосов), `donate_medium` (25), `donate_large` (60), `donate_mega` (130); id должны совпадать с `DONATE_PACKS` в [`js/chest.js`](../js/chest.js)
 - [ ] **IAP:** включить монетизацию приложения в кабинете dev.vk.com (платежи + реклама interstitial/rewarded)
 - [ ] **IAP:** проверить в песочнице — каталог `VKWebAppGetOrderItems` и окно покупки `VKWebAppShowOrderBox` открываются без ошибок; после подтверждения зачисляются жемчужины
+- [ ] **Одноклассники:** привязать «OK ID» (Настройки → «Другие площадки») и подать на модерацию OK — см. [`OK_GAMES.md`](OK_GAMES.md)
 
 ## Особенности / риски
 

@@ -2,8 +2,10 @@
 // Запуск: node store/ui-check.mjs   (требует: npm run serve + puppeteer-core --no-save)
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT = 'D:/ocean-2048/store/shots';
+const OUT = join(dirname(fileURLToPath(import.meta.url)), 'shots');
 mkdirSync(OUT, { recursive: true });
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
@@ -131,5 +133,5 @@ const pass = results.filter((r) => r.ok).length;
 const fail = results.filter((r) => !r.ok).length;
 console.log(`\nИТОГО: ${pass} PASS, ${fail} FAIL`);
 log.push(`\nИТОГО: ${pass} PASS, ${fail} FAIL`);
-writeFileSync('D:/ocean-2048/store/ui-check-report.txt', log.join('\n'));
+writeFileSync(join(dirname(fileURLToPath(import.meta.url)), 'ui-check-report.txt'), log.join('\n'));
 console.log('Отчёт: store/ui-check-report.txt');

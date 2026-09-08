@@ -92,6 +92,12 @@ lint/tmp/
 # Cordova plugins for Capacitor
 capacitor-cordova-android-plugins
 
+# RuStore signing secrets (never commit!)
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
 # Copied web assets
 app/src/main/assets/public
 

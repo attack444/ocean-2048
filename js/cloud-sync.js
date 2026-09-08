@@ -61,6 +61,8 @@ export function resolveConflict(local, cloud) {
     merged.hintsUsed = Math.max(base.hintsUsed || 0, other.hintsUsed || 0);
     merged.undoCount = Math.max(base.undoCount || 0, other.undoCount || 0);
     merged.doubloons = Math.max(base.doubloons || 0, other.doubloons || 0);
+    // Очки партии для «Обмена очков» — максимум, чтобы заслуженное не терялось.
+    merged.pointsBalance = Math.max(base.pointsBalance || 0, other.pointsBalance || 0);
     merged.lastAdTime = Math.max(base.lastAdTime || 0, other.lastAdTime || 0);
     merged.unlockedSkins = unionArr(base.unlockedSkins, other.unlockedSkins, ['gold']);
     merged.unlockedThemes = unionArr(base.unlockedThemes, other.unlockedThemes, ['dark']);
@@ -95,6 +97,64 @@ export function resolveConflict(local, cloud) {
     } else if (!baseDaily && otherDaily) {
         merged.daily = { ...otherDaily };
         merged.dailyCounters = { ...(other.dailyCounters || {}) };
+    }
+
+    // ── Ежедневный турнир глубин (объединяем только если дата совпадает) ──
+    // best — максимум с обоих устройств, played — true, если играли хоть где-то,
+    // claimed (достигнутые пороги наград) — объединение.
+    const baseT = base.tournament && base.tournament.date ? base.tournament : null;
+    const otherT = other.tournament && other.tournament.date ? other.tournament : null;
+    if (baseT && otherT && baseT.date === otherT.date) {
+        merged.tournament = {
+            date: baseT.date,
+            best: Math.max(Number(baseT.best) || 0, Number(otherT.best) || 0),
+            played: !!(baseT.played || otherT.played),
+            claimed: unionArr(baseT.claimed, otherT.claimed).sort((x, y) => x - y),
+        };
+    } else if (!baseT && otherT) {
+        merged.tournament = { ...otherT };
+    }
+
+    // ── Приглашения 👥: приветственный бонус не должен дублироваться ──
+    // welcomeClaimed — true, если хотя бы на одном устройстве уже забрали.
+    // Счётчик дня берём по более свежему состоянию (base).
+    const baseI = base.invite && typeof base.invite === 'object' ? base.invite : null;
+    const otherI = other.invite && typeof other.invite === 'object' ? other.invite : null;
+    if (baseI || otherI) {
+        merged.invite = {
+            date: (baseI && baseI.date) || (otherI && otherI.date) || '',
+            count: Math.max(Number(baseI && baseI.count) || 0, Number(otherI && otherI.count) || 0),
+            welcomeClaimed: !!(baseI && baseI.welcomeClaimed) || !!(otherI && otherI.welcomeClaimed),
+        };
+    }
+
+    // ── Сообщения-вызовы 💪: счётчик дня по максимуму ──
+    const baseR = base.requests && typeof base.requests === 'object' ? base.requests : null;
+    const otherR = other.requests && typeof other.requests === 'object' ? other.requests : null;
+    if (baseR || otherR) {
+        merged.requests = {
+            date: (baseR && baseR.date) || (otherR && otherR.date) || '',
+            count: Math.max(Number(baseR && baseR.count) || 0, Number(otherR && otherR.count) || 0),
+        };
+    }
+
+    // ── Дуэль дня ⚔️ (объединяем только если дата совпадает) ──
+    // best — максимум с обоих устройств, played — true, если играли хоть где-то,
+    // wins — суммарные победы дня, claimed (win/lose награды) — объединение.
+    // pendingScore (счёт соперника из входящего вызова) — более свежее состояние.
+    const baseD = base.duel && base.duel.date ? base.duel : null;
+    const otherD = other.duel && other.duel.date ? other.duel : null;
+    if (baseD && otherD && baseD.date === otherD.date) {
+        merged.duel = {
+            date: baseD.date,
+            best: Math.max(Number(baseD.best) || 0, Number(otherD.best) || 0),
+            played: !!(baseD.played || otherD.played),
+            wins: Math.max(Number(baseD.wins) || 0, Number(otherD.wins) || 0),
+            claimed: unionArr(baseD.claimed, otherD.claimed).sort(),
+            pendingScore: Math.max(Number(baseD.pendingScore) || 0, Number(otherD.pendingScore) || 0),
+        };
+    } else if (!baseD && otherD) {
+        merged.duel = { ...otherD };
     }
 
     // updatedAt остаётся от более свежего состояния — без «отката» метки времени.

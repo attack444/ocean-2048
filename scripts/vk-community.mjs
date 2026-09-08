@@ -35,8 +35,14 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = join(__dirname, '..');
-const ASSETS = join(ROOT, 'store', 'community');
+// --season autumn — публиковать осенний сезонный комплект из store/community/autumn/
+// (аватар, обложка, посты). Оригинальный «океанский» комплект не затрагивается.
+const SEASON_IDX_TOP = process.argv.indexOf('--season');
+const SEASON = SEASON_IDX_TOP !== -1 ? (process.argv[SEASON_IDX_TOP + 1] || '').toLowerCase() : '';
+const ASSET_SUBDIR = SEASON === 'autumn' ? 'autumn' : '';
 const API_VERSION = '5.199';
+// Базовый каталог ассетов; при --season autumn — подкаталог autumn/
+const ASSETS = join(ROOT, 'store', 'community', ASSET_SUBDIR);
 
 // ---------- Загрузка локальных ключей из .env.vk (игнорируется git) ----------
 // Простой парсер без зависимостей: строки КЛЮЧ=значение, комментарии #, пустые строки.
@@ -106,7 +112,6 @@ const NO_TITLE = has('--no-title');
 const INFO = has('--info');
 // --pin <id> — закрепить пост на стене (wall.pin). id поста (положительный, без owner).
 const PIN_POST_ID = Number(flag('--pin') || 0) || 0;
-
 const want = {
   posts: has('--posts') || has('--post') || !['--posts', '--square', '--avatar', '--cover', '--description', '--post']
     .some((f) => args.includes(f)), // по умолчанию всё
@@ -127,6 +132,10 @@ if (explicit) {
 }
 
 // ---------- Контент сообщества (совпадает с store/COMMUNITY_VK.md) ----------
+// В осеннем сезоне к описанию и постам добавляется акцент на осень/саундтрек
+// (контент всё ещё актуален — процедурной музыки в игре нет).
+const AUTUMN_LINE = '🍁 Осеннее обновление: в игре звучит оригинальный саундтрек!';
+
 const COMMUNITY = {
   title: '5MB2 Digital',
   description: [
@@ -139,6 +148,7 @@ const COMMUNITY = {
     '🛠 NeoBrain — SaaS-платформа: SEO-дашборд, ИИ-агент,',
     'деплой сайтов за минуты. Сайт: neobrain.site',
     '',
+    ...(SEASON === 'autumn' ? [AUTUMN_LINE, ''] : []),
     '🎮 Наши игры — продукты студии. «Океан 2048» —',
     'головоломка в подводном мире прямо в VK: соединяй',
     'плитки-кораллы, собирай 2048 и исследуй 7 глубин.',
@@ -152,7 +162,20 @@ const COMMUNITY = {
 const POSTS = [
   {
     file: 'promo-game.png',
-    message: [
+    message: SEASON === 'autumn' ? [
+      '🍁 Осень в «Океан 2048» уже здесь!',
+      '',
+      'Соединяй плитки-кораллы, собирай 2048 и исследуй 7 глубин —',
+      'теперь под новый оригинальный саундтрек.',
+      '',
+      '🎻 Grand Dark Waltz звучит во всей игре, а Ancient Mystery Waltz',
+      'включается в турнире и дуэлях.',
+      '',
+      '🎮 Играть: vk.com/app54731343',
+      '✅ Бесплатно · без покупок',
+      '',
+      'Осень короткая — успей насладиться атмосферой! 🍂',
+    ].join('\n') : [
       '🌊 Океан 2048 уже в VK!',
       '',
       'Классическая головоломка в подводном мире: соединяй плитки-кораллы,',
@@ -208,7 +231,9 @@ const POSTS = [
 const SQUARE_POSTS = [
   {
     file: 'post-game-1080x1080.png',
-    message: '🎮 Океан 2048: собирай 2048, исследуй 7 глубин и стань Хозяином Моря. Играть: vk.com/app54731343',
+    message: SEASON === 'autumn'
+      ? '🍁 Океан 2048: осенняя атмосфера и новый саундтрек. Собирай 2048 и исследуй 7 глубин! Играть: vk.com/app54731343'
+      : ' Океан 2048: собирай 2048, исследуй 7 глубин и стань Хозяином Моря. Играть: vk.com/app54731343',
   },
   {
     file: 'post-ecosystem-1080x1080.png',
@@ -460,6 +485,7 @@ function printPlan() {
       ? `group_name=${GROUP_NAME}`
       : 'автоопределение по токену';
   console.log(`  Сообщество: ${COMMUNITY.title} (${target})`);
+  if (SEASON === 'autumn') console.log('  🍁 Сезонный комплект: осенний (store/community/autumn/)');
   if (want.posts) {
     console.log(ONLY_POST ? `\n  Пост (wall.post): ${ONLY_POST}` : '\n  Посты (wall.post):');
     if (!ONLY_POST) for (const p of POSTS) console.log(`    • ${p.file}`);

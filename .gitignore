@@ -25,6 +25,9 @@ ios/DerivedData/
 *.keystore
 *.jks
 !debug.keystore
+
+# Локальное окружение на диске D: (JDK, Android SDK, gradle-кэш, keystore, пароли)
+tools/
 .env
 .env.*
 
@@ -39,3 +42,4 @@ gh-*.js
 
 # VK Mini Apps deploy config — contains App ID (не коммитить в публичный репозиторий)
 vk-hosting-config.json
+.aider*

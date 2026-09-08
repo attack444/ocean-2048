@@ -9,7 +9,7 @@
 `https://sdk.games.s3.yandex.net/sdk.js` — только для интеграции через **свой домен**.
 Путь `https://yandex.ru/games/sdk/v2` больше не используется.
 
-Обновлён: 2026-08-20.
+Обновлён: 2026-08-24 (сборки минифицированы, ZIP ≈ 179.7 КБ).
 
 ## Что уже реализовано (SDK-адаптер `js/platform-sdk.js`)
 
@@ -81,18 +81,24 @@
 ```bash
 npm run build:yandex
 # → build/yandex/  (index.html, manifest.json, sw.js, privacy-policy.html,
-#   css/styles.css, icons/, js/ — 14 модулей, без тестов и мусора)
+#   css/styles.css, icons/, js/ — минифицированные модули, без тестов и мусора)
 
-powershell -Command "Compress-Archive -Path 'D:\ocean-2048\build\yandex\*' -DestinationPath 'D:\ocean-2048\build\yandex.zip' -Force"
-# → build/yandex.zip (≈275 КБ) — готов для загрузки в кабинет
+powershell -Command "Compress-Archive -Path 'd:\pirat\build\yandex\*' -DestinationPath 'd:\pirat\build\yandex.zip' -Force"
+# → build/yandex.zip (≈179.7 КБ) — готов для загрузки в кабинет
 ```
 
-ZIP **собран и актуален** (пересобран 20.08.2026: путь SDK `/sdk.js` с ведущим
-слэшем; S3-фолбэк удалён; добавлены язык/пауза звука/контекстное меню/своя
-прокрутка; устранена гонка инициализации — `ensureYaGames()` ждёт появления
-`window.YaGames`; тема «Океан 2048» — жемчужины 🦪, ранги от Ракушки до
-Хозяина Моря): `build/yandex.zip`, 281040 байт (обновлён 20.08.2026, новая
-иконка в океанском стиле). Внутри:
+> **Сборки минифицированы (24.08.2026)**: JS/CSS проходят через esbuild
+> (`scripts/lib/minify.mjs` — минификация каждого файла без бандлинга,
+> относительные ESM-импорты сохраняются). JS: 292 КБ → 146 КБ (−50%),
+> каталог `build/yandex` ≈ 363 КБ (−48%), ZIP ≈ 179.7 КБ (−35%).
+> Бонус для Яндекса: `legalComments: 'none'` вырезает все комментарии — литералы
+> URL внутренних хранилищ физически не могут попасть в архив (правило от 20.08).
+
+ZIP **собран и актуален** (пересобран 24.08.2026: минификация JS/CSS; путь SDK
+`/sdk.js` с ведущим слэшем; S3-фолбэк удалён; язык/пауза звука/контекстное
+меню/своя прокрутка; гонка инициализации устранена — `ensureYaGames()` ждёт
+появления `window.YaGames`): `build/yandex.zip`, **184033 байта (≈179.7 КБ)**
+(обновлён 24.08.2026). Внутри:
 - `index.html` лежит в корне (требование Яндекса);
 - `js/main.js` — актуальный, с условием `platform.isWeb && sdk.host === 'web'`
   (на площадке SW не регистрируется);
@@ -102,7 +108,7 @@ ZIP **собран и актуален** (пересобран 20.08.2026: пу�
 
 Повторная сборка/переархивация (если меняли код):
 ```bash
-npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-2048\build\yandex\*' -DestinationPath 'D:\ocean-2048\build\yandex.zip' -Force"
+npm run build:yandex && powershell -Command "Compress-Archive -Path 'd:\pirat\build\yandex\*' -DestinationPath 'd:\pirat\build\yandex.zip' -Force"
 ```
 
 ## Шпаргалка для черновика (копируй-вставляй)
@@ -148,6 +154,7 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 • Управление свайпами и кнопками-стрелками — играй как удобно
 • Магазин у рифа: бусты «Перемешать», «Бомба» и «Двойные очки»
 • 6 скинов плиток и 3 темы оформления — меняй внешний вид игры
+• Оригинальный саундтрек (музыка и звук отключаются в настройках)
 • Ежедневные задания и ежедневный бонус с наградами
 • Облачные сохранения: прогресс синхронизируется между устройствами
 • Таблица рекордов — соревнуйся с другими игроками
@@ -215,16 +222,16 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 
 | Поле | Файл |
 |------|------|
-| Иконка | `D:\ocean-2048\build\yandex\icons\icon-512.png` (512×512) |
-| Скриншоты (мин. 2, лучше 4, 1280×720) | `D:\ocean-2048\store\shots\yandex-home.png`, `yandex-moves.png`, `yandex-shop.png`, `yandex-shop-skin.png` |
-| Обложка (cover) | `D:\ocean-2048\store\shots\yandex-cover.png` (**800×470**, готово) |
+| Иконка | `d:\pirat\build\yandex\icons\icon-512.png` (512×512) |
+| Скриншоты (мин. 2, лучше 4, 1280×720) | `d:\pirat\store\shots\yandex-home.png`, `yandex-moves.png`, `yandex-shop.png`, `yandex-shop-skin.png` |
+| Обложка (cover) | `d:\pirat\store\shots\yandex-cover.png` (**800×470**, готово) |
 | Превью (видео 9:16) | опционально — можно пропустить |
 
 ### Файлы игры
 
 | Поле | Файл |
 |------|------|
-| Архив (ZIP) | `D:\ocean-2048\build\yandex.zip` (≈275 КБ) |
+| Архив (ZIP) | `d:\pirat\build\yandex.zip` (≈179.7 КБ) |
 
 ## Пошаговая инструкция отправки в кабинет (детально)
 
@@ -238,7 +245,7 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 
 ### Шаг 2. Загрузить игровой файл (ZIP)
 1. Открыть вкладку/раздел **«Игровые файлы»** (или «Архив игры»).
-2. Загрузить `D:\ocean-2048\build\yandex.zip` (**≈275 КБ**).
+2. Загрузить `d:\pirat\build\yandex.zip` (**≈179.7 КБ**).
 3. Требование Яндекса выполнено: `index.html` в корне архива.
 4. Нажать «Сохранить»/«Проверить» — кабинет распакует архив и покажет структуру.
 
@@ -256,12 +263,12 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 | Ссылка на политику конфиденциальности | `https://5mb2.ru/static/games/ocean-2048/privacy-policy.html` (или `privacy-policy.html` из архива) |
 
 ### Шаг 4. Загрузить графику
-1. **Иконка**: `D:\ocean-2048\build\yandex\icons\icon-512.png` (512×512).
+1. **Иконка**: `d:\pirat\build\yandex\icons\icon-512.png` (512×512).
 2. **Скриншоты** (мин. 2, лучше 4, размер **1280×720**):
-   - `D:\ocean-2048\store\shots\yandex-home.png`
-   - `D:\ocean-2048\store\shots\yandex-moves.png`
-   - `D:\ocean-2048\store\shots\yandex-shop.png`
-   - `D:\ocean-2048\store\shots\yandex-shop-skin.png`
+   - `d:\pirat\store\shots\yandex-home.png`
+   - `d:\pirat\store\shots\yandex-moves.png`
+   - `d:\pirat\store\shots\yandex-shop.png`
+   - `d:\pirat\store\shots\yandex-shop-skin.png`
 3. Превью (видео/анимация 9:16) — опционально, можно пропустить.
 
 ### Шаг 5. Настроить лидерборд и облако
@@ -314,7 +321,7 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 | URL внутреннего хранилища в файлах архива («Обнаружена ссылка на сервисное хранилище») | ✅ исправлено 20.08: из комментариев `index.html` и `js/platform-sdk.js` удалён литерал `https://sdk.games.s3.yandex.net/sdk.js`; по всему ZIP проверено отсутствие `yandex.net`/`s3.`/`sdk.games` |
 | Ошибка запуска/не открывается index.html в корне | ✅ index.html в корне архива |
 | Сломанная вёрстка/нечитаемые тексты | ✅ проверено на скриншотах 1280×720 |
-| Ошибки консоли / краши | ✅ тесты 182/182, песочница |
+| Ошибки консоли / краши | ✅ тесты 407/407, lint 0 errors, Playwright smoke-тест сборки PASS |
 | Нет политики конфиденциальности | ✅ `privacy-policy.html` в архиве + на 5mb2.ru |
 | Реклама без модерации/нарушение | ✅ до модерации реклама не показывается |
 | Некорректный возрастной рейтинг | ✅ 3+, без насилия/азарта |
@@ -329,7 +336,7 @@ npm run build:yandex && powershell -Command "Compress-Archive -Path 'D:\ocean-20
 - [x] Инициализация без гонки (п. 1.1): `ensureYaGames()` ждёт появления `window.YaGames` (`waitForYaGames`), вызывается `YaGames.init()` → `LoadingAPI` работает, индикатор лоадера `IT`, а не `W`
 - [x] В файлах архива нет URL внутреннего хранилища (`yandex.net`/`s3.`/`sdk.games`) даже в комментариях — проверено по всем html/js/css
 - [x] Соответствие требованиям платформы: S3 удалён (1.7), язык при запуске (2.14), пауза звука/геймплея при рекламе (4.7), звук при потере фокуса (1.3), нет контекстного меню (1.6.1.8/1.6.2.7), своя прокрутка (1.10.2), `LoadingAPI.ready()` (1.19.2)
-- [x] Сборка `build/yandex` + ZIP (`build/yandex.zip`, 281040 байт) — актуальны (20.08.2026), иконка в океанском стиле, проверено скриптом `scripts/verify-yandex-zip.ps1` (нет `yandex.net`/`s3.`/`sdk.games`, тег `/sdk.js` на месте)
+- [x] Сборка `build/yandex` минифицирована (esbuild, JS −50%) + ZIP (`build/yandex.zip`, 184033 байта ≈ 179.7 КБ) — актуальны (24.08.2026), проверено скриптом `scripts/verify-yandex-zip.ps1` (нет `yandex.net`/`s3.`/`sdk.games`, тег `/sdk.js` на месте, PASS) + Playwright smoke-тест сборки (игра запускается без ошибок консоли)
 - [x] Скриншоты 1280×720: `store/shots/yandex-*.png` (home, moves, shop, shop-skin) — перегенерированы 20.08.2026
 - [ ] Загрузить ZIP в кабинет Яндекс Игр
 - [ ] Заполнить метаданные + загрузить скриншоты 1280×720 и иконку 512×512

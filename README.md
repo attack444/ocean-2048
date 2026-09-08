@@ -128,9 +128,11 @@ ocean-2048/
 │   ├── platform.js         # web / ios / android
 │   ├── platform-sdk.js     # Адаптер VK Mini Apps / Яндекс Игры / Web (вкл. соцмеханики)
 │   ├── sound.js            # Звуки (Web Audio)
+│   ├── music.js            # Фасад музыки (вся музыка — OST)
+│   ├── ost.js              # Плеер оригинального саундтрека (audio/ost/*.mp3)
 │   ├── native-entry.js     # Бандл для Capacitor
 │   └── native-plugins.js   # Haptics/StatusBar/etc для нативных сборок
-├── js/*.test.js            # Юнит-тесты (node:test): 216
+├── js/*.test.js            # Юнит-тесты (node:test): 529
 ├── scripts/                # Сборки www/vk/yandex, генерация графики, чекеры
 ├── android/                # Capacitor Android
 ├── ios/                    # Capacitor iOS (сборка на Mac)

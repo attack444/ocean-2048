@@ -11,8 +11,10 @@
 import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT_DIR = 'D:/ocean-2048/store/trailer';
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'store', 'trailer');
 mkdirSync(OUT_DIR, { recursive: true });
 
 const BASE = 'http://localhost:4173';

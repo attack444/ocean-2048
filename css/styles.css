@@ -187,10 +187,10 @@ html, body {
 
 body {
     background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
-    min-height: 100%;
+    min-height: 100dvh;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
+    align-items: stretch;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: #f5f5f5;
     padding: 8px 6px;
@@ -201,20 +201,33 @@ body {
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 12px 12px 8px;
+    padding: 10px 12px 6px;
     box-shadow: none;
     max-width: 100%;
     width: 100%;
-    max-height: 100%;              /* п. 1.10.2: собственная прокрутка вместо браузерной */
+    height: 100dvh;                /* п. 1.10.2: контейнер на всю высоту экрана */
+    max-height: 100dvh;
+    position: relative;
+    z-index: 2;                    /* игровой UI; листья (z-index: 60) — поверх, но кликабельность не блокируют */
+    /* Компактная вёрстка позволяет обойтись без прокрутки на типичных экранах;
+       если контент всё же не помещается (очень маленький экран) — скролл внутри
+       контейнера остаётся доступным (модерация VK п.2). */
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    /* Container query: JS вычисляет свободную высоту под доску и задаёт
+       её через инлайн-переменную --board-max; доска опирается на неё. */
+    container-type: inline-size;
+    container-name: game-screen;
 }
 
 /* ======================== Шапка ======================== */
 header {
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     border-bottom: 2px solid var(--gold);
-    padding-bottom: 16px;
+    padding-bottom: 8px;
+    flex-shrink: 0;
 }
 
 .header-top {
@@ -222,7 +235,7 @@ header {
     align-items: center;
     justify-content: center;
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 8px;
 }
 
 .header-actions {
@@ -232,35 +245,74 @@ header {
 }
 
 header h1 {
-    font-size: 2rem;
+    font-size: 1.6rem;
     color: var(--gold-light);
     text-shadow: 2px 2px 6px rgba(0,0,0,.8);
     letter-spacing: 2px;
 }
 
+/* Переключатель режима игры: Глубины / Классика */
+.mode-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(0,0,0,.35);
+    border: 2px solid var(--gold);
+    border-radius: 999px;
+    padding: 3px;
+    margin-top: 8px;
+}
+.mode-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted, #b8d4e8);
+    font: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .18s, color .18s, box-shadow .18s;
+}
+.mode-btn:hover { color: var(--gold-light); }
+.mode-btn.active {
+    background: linear-gradient(135deg, var(--gold), var(--gold-bright));
+    color: #0a1420;
+    box-shadow: 0 0 12px rgba(0,0,0,.35);
+}
+/* В режиме «Классика» скрываем элементы уровней/индикаторов — чистый 2048 */
+body.mode-classic .level-info { display: none; }
+body.mode-classic #level-select-btn { display: none; }
+body.mode-classic #mission-bar,
+body.mode-classic #tide-indicator,
+body.mode-classic #threat-indicator,
+body.mode-classic #shark-indicator,
+body.mode-classic #challenge-indicator { display: none !important; }
+body.mode-classic .controls { justify-content: center; }
+
 .stats {
     display: flex;
     justify-content: center;
-    gap: 10px;
+    gap: 6px;
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .stat {
     background: rgba(0,0,0,.3);
-    padding: 8px 16px;
-    border-radius: 10px;
+    padding: 4px 10px;
+    border-radius: 8px;
     border: 2px solid var(--gold);
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 80px;
+    min-width: 64px;
 }
 
 .stat .label {
     color: var(--gold);
     font-weight: bold;
-    font-size: .75rem;
+    font-size: .68rem;
     text-transform: uppercase;
     letter-spacing: .5px;
 }
@@ -342,14 +394,33 @@ main {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-height: 0;         /* разрешаем сжатие, чтобы доска помещалась */
+    overflow: hidden;
+}
+
+/* Обёртка доски: держит квадрат, центрирует, не даёт вылезать за main.
+   Собственный размер JS вычисляет через контейнерную переменную --board-max. */
+.board-wrap {
+    position: relative;
+    width: 100%;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* JS ставит: width = min(доступная ширина, доступная высота) */
+    min-height: 0;
 }
 
 .board {
     position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
-    max-width: min(96vw, 560px);
+    /* Ограничиваем доску по ширине с учётом высоты экрана, шапки, кнопок и бустов.
+       JS вычисляет свободную высоту main и пишет её в --board-max на контейнере;
+       aspect-ratio сохраняет квадрат, ничего не обрезается (модерация VK п.2). */
+    max-width: min(96vw, 560px, var(--board-max, 62vh));
     background: var(--board-bg);
     border: 3px solid var(--gold);
     border-radius: 14px;
@@ -450,7 +521,14 @@ main {
     letter-spacing: .5px;
 }
 
-.tile.new { animation: tileAppear .22s ease; }
+/* Новая плитка: появление + мягкое золотое свечение (затухает) */
+.tile.new {
+    animation: tileAppear .28s ease, new-tile-glow 1.1s ease-out;
+}
+@keyframes new-tile-glow {
+    0%   { filter: drop-shadow(0 0 14px rgba(255,215,0,.95)) brightness(1.3); }
+    100% { filter: none; }
+}
 
 /* Размер шрифта для 5×5 */
 .board.size-5 .tile           { font-size: 1.6rem; }
@@ -488,6 +566,31 @@ main {
 .tile[data-value="2048"] { background: var(--t2048-bg); color: var(--t2048-c); font-weight: 900; }
 .tile[data-value="4096"] { background: var(--t4096-bg); color: var(--t4096-c); }
 .tile[data-value="8192"] { background: var(--t8192-bg); color: var(--t8192-c); }
+
+/* «Дыхание» редких плиток (512+): мягкий пульсирующий ореол.
+   Анимируем только ::after (box-shadow/scale ореола), чтобы не конфликтовать
+   с inline transform плитки (позиция) и анимацией появления (.tile.new). */
+.tile[data-value="512"]::after,
+.tile[data-value="1024"]::after,
+.tile[data-value="2048"]::after,
+.tile[data-value="4096"]::after,
+.tile[data-value="8192"]::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 12px;
+    z-index: -1;
+    background: radial-gradient(circle, rgba(255,255,255,.4), rgba(255,255,255,.05) 55%, transparent 72%);
+    pointer-events: none;
+    animation: rare-tile-breathe 2.6s ease-in-out infinite;
+    will-change: opacity, transform;
+}
+@keyframes rare-tile-breathe {
+    0%, 100% { opacity: .28; transform: scale(.97); }
+    50%      { opacity: .7;  transform: scale(1.06); }
+}
+/* Способности-плитки не получают ореол редких (у них value=2 и своя анимация) */
+.tile.ability-tile::after { display: none; }
 
 /* ======================== Плитки-способности ⚡ ========================
    Редкие плитки, которые игрок активирует тапом/кликом (не сливаются).
@@ -565,64 +668,88 @@ main {
     100% { transform: scale(1); }
 }
 
-/* ======================== D-pad (тач-кнопки) ======================== */
-.dpad {
-    display: none;        /* скрыт на ПК */
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
+/* ======================== Эффекты хода (Фаза 5) ======================== */
+/* «Волна» подсветки при свайпе: полоса проносится через доску в направлении хода */
+.board.swipe-wave::after {
+    content: '';
+    position: absolute;
+    z-index: 6;
+    pointer-events: none;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.32), rgba(255,215,0,.42), rgba(255,255,255,.32), transparent);
+    filter: blur(2px);
+    opacity: 0;
+    will-change: left, top, opacity;
+}
+.board.swipe-wave.h::after {
+    top: 0;
+    height: 100%;
+    width: 52px;
+    left: var(--wave-from);
+    animation: wave-sweep-h .38s ease-in-out;
+}
+.board.swipe-wave.v::after {
+    left: 0;
+    width: 100%;
+    height: 52px;
+    top: var(--wave-from);
+    animation: wave-sweep-v .38s ease-in-out;
+}
+@keyframes wave-sweep-h {
+    0%   { left: var(--wave-from); opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { left: var(--wave-to); opacity: 0; }
+}
+@keyframes wave-sweep-v {
+    0%   { top: var(--wave-from); opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { top: var(--wave-to); opacity: 0; }
 }
 
-/* Показываем только на тач-устройствах */
-@media (hover: none) and (pointer: coarse) {
-    .dpad { display: flex; }
+/* Комбо-эффект: доска вспыхивает золотом, когда серия слияний растёт */
+.board.combo-glow { animation: combo-board-glow .6s ease-out; }
+@keyframes combo-board-glow {
+    0%   { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
+    30%  { box-shadow: 0 0 42px 10px rgba(255,215,0,.55); }
+    100% { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
 }
 
-.dpad-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
+/* Всплывающий текст «Комбо ×N» над доской */
+.combo-pop {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 7;
+    transform: translate(-50%, -50%);
+    font-size: 1.5rem;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #fff;
+    text-shadow: 0 2px 8px rgba(0,0,0,.6), 0 0 18px rgba(255,215,0,.9);
+    pointer-events: none;
+    opacity: 0;
 }
-
-.dpad-btn {
-    width: 58px;
-    height: 58px;
-    font-size: 1.4rem;
-    background: linear-gradient(135deg, var(--gold), #007a91);
-    color: var(--white);
-    border: none;
-    border-radius: 10px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 8px rgba(0,0,0,.45);
-    transition: transform .1s, box-shadow .1s;
-    touch-action: none;
-}
-
-.dpad-btn:active { transform: scale(.88); box-shadow: 0 2px 4px rgba(0,0,0,.4); }
-
-.dpad-center {
-    width: 58px;
-    height: 58px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.9rem;
+.combo-pop.pop { animation: combo-pop-rise .85s ease-out forwards; }
+@keyframes combo-pop-rise {
+    0%   { opacity: 0; transform: translate(-50%, -30%) scale(.6); }
+    20%  { opacity: 1; transform: translate(-50%, -55%) scale(1.15); }
+    100% { opacity: 0; transform: translate(-50%, -160%) scale(1); }
 }
 
 /* ======================== Кнопки ======================== */
 .controls {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     justify-content: center;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .btn {
-    padding: 11px 22px;
-    font-size: 1rem;
+    padding: 9px 18px;
+    font-size: .92rem;
     border: none;
     border-radius: 8px;
     cursor: pointer;
@@ -681,6 +808,9 @@ footer { display: none; }
     justify-content: center;
     z-index: 9000;
     padding: 16px;
+    /* Если модалка выше экрана — она прокручивается внутри оверлея,
+       а не «уезжает» за пределы (модерация VK п.2 — удобство без скролла экрана). */
+    overflow-y: auto;
     backdrop-filter: blur(4px);
     opacity: 0;
     visibility: hidden;
@@ -696,9 +826,13 @@ footer { display: none; }
     background: linear-gradient(180deg, var(--wood-dark), var(--wood-mid));
     border: 3px solid var(--gold);
     border-radius: 20px;
-    padding: 32px 28px;
+    padding: 28px 24px;
     max-width: 420px;
     width: 100%;
+    /* Модалка не должна быть выше экрана: при необходимости скроллится
+       внутри себя (модерация VK п.2 — удобство без скролла экрана). */
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
     text-align: center;
     box-shadow: 0 20px 50px rgba(0,0,0,.8);
     /* Фаза 5: плавные переходы появления и закрытия модалок */
@@ -964,6 +1098,107 @@ footer { display: none; }
     border-color: rgba(76,175,80,.6);
 }
 
+/* ======================== Ежедневный турнир глубин 🏆 ======================== */
+.tournament-block {
+    /* Золотистая тема — отличается от голубой головоломки */
+    background: linear-gradient(135deg, rgba(64,48,16,.5), rgba(40,32,10,.45));
+    border-color: rgba(255,213,79,.55);
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(255,213,79,.08);
+}
+
+.tournament-block::before {
+    content: '🏆';
+}
+
+.tournament-block .dp-title {
+    color: var(--gold);
+}
+
+.tournament-rewards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.tournament-reward {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.12);
+    color: rgba(255,255,255,.7);
+    font-size: .72rem;
+    white-space: nowrap;
+}
+
+.tournament-reward.claimed {
+    background: rgba(76,175,80,.18);
+    border-color: rgba(76,175,80,.45);
+    color: #a5d6a7;
+}
+
+.tournament-reward.claimed::before {
+    content: '✓ ';
+}
+
+/* ======================== Дуэль дня ⚔️ (асинхронная) ======================== */
+.duel-block {
+    /* Огненно-коралловая тема — отличается от золотого турнира и голубой головоломки */
+    background: linear-gradient(135deg, rgba(96,32,28,.5), rgba(60,20,18,.45));
+    border-color: rgba(255,120,90,.55);
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(255,120,90,.08);
+}
+
+.duel-block::before {
+    content: '⚔️';
+}
+
+.duel-block .dp-title {
+    color: #ff8a70;
+}
+
+.duel-opponent {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0 10px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(255,120,90,.16);
+    border: 1px solid rgba(255,120,90,.4);
+    color: #ffb4a0;
+    font-size: .78rem;
+    font-weight: 600;
+}
+
+.duel-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.duel-stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.12);
+    color: rgba(255,255,255,.7);
+    font-size: .72rem;
+    white-space: nowrap;
+}
+
+.duel-block .btn-secondary {
+    margin-top: 8px;
+    width: 100%;
+}
+
 /* ======================== Карта глубин 🗺️ ======================== */
 .depths-map {
     position: relative;
@@ -1154,36 +1389,39 @@ body.is-fullscreen .board {
 
 /* ======================== Адаптивность ======================== */
 @media (max-width: 480px) {
-    body { padding: 8px 4px; }
+    body { padding: 6px 4px; }
 
-    .container { padding: 16px 14px; border-radius: 16px; }
+    .container { padding: 8px 10px 4px; border-radius: 12px; }
 
-    header h1 { font-size: 1.5rem; letter-spacing: 1px; }
+    header h1 { font-size: 1.3rem; letter-spacing: 1px; }
 
-    .stat .value { font-size: 1.2rem; }
+    .stat .value { font-size: 1.05rem; }
+    .stat { min-width: 56px; padding: 3px 8px; }
 
-    .board { gap: 6px; padding: 6px; }
-    .board.size-5 { gap: 5px; }
-    .board.size-6 { gap: 4px; padding: 5px; }
+    .board { gap: 5px; padding: 5px; }
+    .board.size-5 { gap: 4px; }
+    .board.size-6 { gap: 3px; padding: 4px; }
 
-    .tile          { font-size: 1.6rem; }
-    .board.size-5 .tile { font-size: 1.2rem; }
-    .board.size-6 .tile { font-size: .95rem; }
+    .tile          { font-size: 1.4rem; }
+    .board.size-5 .tile { font-size: 1.05rem; }
+    .board.size-6 .tile { font-size: .85rem; }
 
     .board.size-6 .tile[data-value="1024"],
     .board.size-6 .tile[data-value="2048"],
     .board.size-6 .tile[data-value="4096"],
-    .board.size-6 .tile[data-value="8192"] { font-size: .72rem; }
+    .board.size-6 .tile[data-value="8192"] { font-size: .65rem; }
 
-    .btn { padding: 10px 18px; font-size: .9rem; }
+    .btn { padding: 8px 14px; font-size: .82rem; }
+
+    .boost-btn { padding: 5px 10px; font-size: .8rem; }
 
     .levels-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 360px) {
-    header h1 { font-size: 1.2rem; }
-    .tile     { font-size: 1.3rem; }
-    .dpad-btn { width: 50px; height: 50px; }
+    header h1 { font-size: 1.1rem; }
+    .tile     { font-size: 1.2rem; }
+    .stat { min-width: 50px; }
 }
 
 /* ==================================================================
@@ -1212,11 +1450,13 @@ body.is-native .container {
     box-shadow: none;
     max-width: 100%;
     width: 100%;
+    height: 100dvh;
     min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
     padding: 12px 14px 8px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    overflow-y: auto;
 }
 
 /* Поле без «окошка»: нет золотой рамки, теней и скруглений-карточки */
@@ -1225,7 +1465,7 @@ body.is-native .board {
     border-radius: 12px;
     box-shadow: none;
     background: rgba(0, 0, 0, .35);
-    max-width: min(92vw, 520px);
+    max-width: min(92vw, 520px, 62vh);
     margin: 0 auto;
 }
 
@@ -1242,12 +1482,6 @@ body.is-native header h1 {
 body.is-native #fullscreen-btn,
 body.is-native .btn-icon[hidden] {
     display: none !important;
-}
-
-/* На нативе D-pad всегда видим */
-body.is-native .dpad,
-body.force-dpad .dpad {
-    display: flex;
 }
 
 body.is-native footer {
@@ -1271,15 +1505,10 @@ body.is-ios .container {
     padding-top: max(16px, env(safe-area-inset-top));
 }
 
-/* Android: жестовая панель снизу */
-body.is-android .dpad {
-    margin-bottom: max(4px, env(safe-area-inset-bottom));
-}
-
 @media (max-width: 480px) {
     body.is-native .container { padding: 8px 10px; }
     body.is-native header h1 { font-size: 1.25rem; }
-    body.is-native .board { max-width: min(96vw, 480px); }
+    body.is-native .board { max-width: min(96vw, 480px, 62vh); }
 }
 
 /* ==================================================================
@@ -1336,6 +1565,33 @@ body.theme-light .achievement        { background: rgba(0,0,0,.05); }
     pointer-events: none;
     overflow: hidden;
 }
+
+/* ==================================================================
+   ЖИВОЙ ОКЕАН: процедурный канвас-фон (градиент темы, рыбы, планктон,
+   медузы, лучи света, пузыри, лепестки). Вставлен первым ребёнком body,
+   лежит под всеми слоями (z-index: 0), не перехватывает клики.
+   ================================================================== */
+.atmosphere-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* ==================================================================
+   ОСЕНЬ: слой падающих листьев (canvas поверх UI, под модалками).
+   z-index: 60 — выше игрового контейнера (z-index: 2), но ниже
+   конфетти (10000), тостов (12000) и модалок (9000).
+   ================================================================== */
+.autumn-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    overflow: hidden;
+}
+
 /* Каждый пузырёк задаётся CSS-переменными (размер, позиция, длительность) */
 .bubbles .bub {
     position: absolute;
@@ -1377,39 +1633,6 @@ body.theme-light .achievement        { background: rgba(0,0,0,.05); }
     100% { transform: translate3d(var(--sway, 40px), 110vh, 0) rotate(720deg); opacity: 0; }
 }
 
-/* ==================================================================
-   ТОСТЫ (уведомления о достижениях)
-   ================================================================== */
-.toast-container {
-    position: fixed;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 12000;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    pointer-events: none;
-    width: min(80vw, 360px);
-}
-.toast {
-    background: linear-gradient(180deg, var(--wood-dark), var(--wood-mid));
-    border: 2px solid var(--gold);
-    border-radius: 12px;
-    padding: 8px 14px;
-    color: var(--gold-light);
-    font-weight: bold;
-    font-size: .85rem;
-    text-align: center;
-    box-shadow: 0 8px 24px rgba(0,0,0,.6);
-    opacity: 0;
-    transform: translateY(-14px) scale(.96);
-    transition: opacity .25s, transform .25s;
-    max-width: 100%;
-}
-.toast.show { opacity: 1; transform: translateY(0) scale(1); }
-body.theme-light .toast { background: linear-gradient(180deg, #eafafd, #cdeef5); color: #007a91; }
 
 /* ==================================================================
    МОДАЛКА НАСТРОЕК
@@ -1444,6 +1667,23 @@ body.theme-light .toast { background: linear-gradient(180deg, #eafafd, #cdeef5);
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+.setting-note {
+    font-size: .8rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 6px 0 0;
+    opacity: .85;
+}
+.setting-note a {
+    color: var(--gold-light);
+}
+.setting-hint {
+    font-size: .78rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin-top: 8px;
+    opacity: .8;
 }
 .setting-btn {
     background: rgba(0,0,0,.25);
@@ -1605,6 +1845,45 @@ body.theme-light .achievement .ach-desc { color: #1a5a76; }
     0%, 100% { transform: translateY(0) rotate(-3deg); }
     50%      { transform: translateY(-10px) rotate(3deg); }
 }
+
+/* ── Контент загрузочного экрана поверх листьев ── */
+.loading-inner {
+    position: relative;
+    z-index: 2;
+}
+
+/* ── Осенние листья на загрузочном экране (CSS-анимация) ── */
+.loading-leaves {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    pointer-events: none;
+}
+.loading-leaves .leaf {
+    position: absolute;
+    top: -48px;
+    left: var(--lx, 10%);
+    font-size: var(--size, 28px);
+    opacity: 0;
+    animation: loadingLeafFall var(--dur, 8s) linear var(--delay, 0s) infinite;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,.35));
+    will-change: transform, opacity;
+}
+.leaf-1 { --lx: 6%;  --dur: 8.5s; --delay: 0s;   --size: 30px; }
+.leaf-2 { --lx: 20%; --dur: 10s;  --delay: 1.2s; --size: 22px; }
+.leaf-3 { --lx: 36%; --dur: 7.5s; --delay: .6s;  --size: 34px; }
+.leaf-4 { --lx: 54%; --dur: 9.5s; --delay: 2s;   --size: 26px; }
+.leaf-5 { --lx: 71%; --dur: 8s;   --delay: 1.6s; --size: 20px; }
+.leaf-6 { --lx: 89%; --dur: 11s;  --delay: .3s;  --size: 32px; }
+@keyframes loadingLeafFall {
+    0%   { transform: translate3d(0, 0, 0) rotate(0deg);   opacity: 0; }
+    8%   { opacity: .95; }
+    85%  { opacity: .85; }
+    100% { transform: translate3d(var(--sway, 40px), 108vh, 0) rotate(360deg); opacity: 0; }
+}
+/* Доступность: листья отключаются при reduce-motion */
+body.reduce-motion .loading-leaves { display: none; }
 
 /* ==================================================================
    ДУБЛОНЫ И ЦЕНЫ В НАСТРОЙКАХ
@@ -1786,6 +2065,10 @@ body.reduce-motion .stat .value.best-pulse { animation: none; }
 /* Фаза 1: пузырьки-фон и частицы слияния отключаются при reduce-motion */
 body.reduce-motion .bubbles { display: none; }
 body.reduce-motion .particles-layer { display: none; }
+/* «Живой океан» (процедурный канвас-фон) отключается при reduce-motion */
+body.reduce-motion .atmosphere-layer { display: none; }
+/* Осенние листья отключаются при reduce-motion (доступность) */
+body.reduce-motion .autumn-layer { display: none; }
 
 /* ==================================================================
    ФАЗА 5 «Полировка»: доступность (скорость анимаций, крупный текст)
@@ -2263,16 +2546,18 @@ body.theme-light .shark-count     { color: #b71c1c; }
 .boost-bar {
     display: flex;
     justify-content: center;
-    gap: 8px;
-    margin: 10px 0 4px;
+    gap: 6px;
+    margin: 6px 0 2px;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 .boost-btn {
     position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: .9rem;
+    font-size: .85rem;
+    padding: 6px 12px;
 }
 .boost-count {
     display: inline-flex;
@@ -2353,6 +2638,40 @@ body.theme-light .boost-count { background: rgba(0,0,0,.08); color: #007a91; }
 .shop-desc { color: var(--text-muted); font-size: .74rem; line-height: 1.25; }
 .shop-base { color: rgba(255,255,255,.5); font-size: .7rem; }
 .shop-item.owned .shop-base { color: #4caf50; }
+.shop-ability { font-size: .7rem; color: rgba(255,255,255,.55); line-height: 1.3; }
+.shop-ability.on { color: #ffd54f; }
+.shop-upgrade {
+    background: linear-gradient(180deg, #4caf50, #1b5e20);
+    color: #fff;
+    border: none;
+    font-weight: bold;
+    margin-top: 4px;
+}
+.shop-upgrade.disabled { opacity: .5; cursor: not-allowed; }
+.shop-sets {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+.shop-sets-title { color: var(--gold-light); font-weight: bold; font-size: .85rem; text-align: center; }
+.shop-set {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,.18);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: .75rem;
+}
+.shop-set.owned { border-color: rgba(76,175,80,.4); }
+.shop-set.active { border-color: #ffd54f; background: rgba(255,213,79,.1); }
+.shop-set-icon { font-size: 1.2rem; }
+.shop-set-name { color: #fff; font-weight: bold; }
+.shop-set-parts { color: var(--text-muted); font-size: .68rem; flex: 1; }
+.shop-set-bonus { color: #4caf50; font-weight: bold; }
 .shop-buy {
     background: linear-gradient(180deg, var(--gold), #007a91);
     color: #fff;
@@ -2512,6 +2831,213 @@ body.theme-abyss .shop-item { background: rgba(0,0,0,.3); border-color: rgba(255
 body.theme-abyss .shop-name { color: #7fd4ff; }
 
 /* ==================================================================
+   ТЕМА «ОСЕНЬ» (body.theme-autumn) 🍁
+   Тёплая палитра: янтарь, охра, терракота. Глобальные переменные
+   перекрывают :root — поэтому модалки, кнопки, тосты, шапка, статы
+   и борд автоматически перекрашиваются. Ниже — override для всех
+   жёстко «бирюзовых» селекторов (индикаторы, карта глубин, ежедневка).
+   Листья падают поверх (канвас-слой js/autumn.js + main.js).
+   ================================================================== */
+body.theme-autumn {
+    /* ── Глобальные переменные темы: перекрывают :root ── */
+    --gold:        #e8962c;
+    --gold-light:  #ffd9a0;
+    --gold-bright: #ffb300;
+    --navy:        #2a1606;
+    --navy-mid:    #4a2a12;
+    --wood-dark:   #1f0f04;
+    --wood-mid:    #3a2410;
+    --board-bg:    #3f2512;
+    --text-muted:  #e8d5b8;
+
+    background: linear-gradient(135deg, #2a1606 0%, #6b3a1f 100%);
+}
+body.theme-autumn .container {
+    background: linear-gradient(180deg, #3a2410 0%, #6b3a1f 100%);
+}
+body.theme-autumn header { border-bottom-color: #d98a2b; }
+
+/* ── Вау-эффект: анимированный янтарный градиент заголовка ── */
+body.theme-autumn header h1 {
+    background: linear-gradient(90deg, #ffd9a0, #ffb300, #ff8a3d, #ffd9a0);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: autumnShimmer 5s linear infinite;
+    filter: drop-shadow(0 2px 6px rgba(255,150,50,.35));
+}
+body.theme-autumn .stat { background: rgba(0,0,0,.3); border-color: #d98a2b; }
+body.theme-autumn .stat .label { color: #f0b06a; }
+body.theme-autumn .stat .value { color: #ffd9a0; }
+body.theme-autumn .stat .value.active { color: #ff6a3d; text-shadow: 0 0 10px rgba(255, 106, 61, .9); }
+body.theme-autumn .level-name { color: #ffd9a0; }
+body.theme-autumn .level-target-wrap { color: #f5c98f; }
+body.theme-autumn .level-target-wrap strong { color: #ffd9a0; }
+body.theme-autumn .btn-icon { background: rgba(0,0,0,.3); border-color: #d98a2b; }
+body.theme-autumn .btn-icon:hover { background: rgba(217,138,43,.25); }
+body.theme-autumn .btn-secondary { background: rgba(0,0,0,.3); border-color: #d98a2b; }
+body.theme-autumn .btn-secondary:hover { background: rgba(217,138,43,.2); }
+body.theme-autumn .btn-ghost { border-color: rgba(255,255,255,.2); }
+
+/* ── Кнопки / покупки: убираем бирюзовые градиенты ── */
+body.theme-autumn .btn-primary {
+    background: linear-gradient(135deg, #ffb300, #ff8a3d);
+    box-shadow: 0 4px 12px rgba(255,138,61,.4);
+}
+body.theme-autumn .btn-primary:hover  { background: linear-gradient(135deg, #ff8a3d, #ffd740); box-shadow: 0 6px 16px rgba(255,138,61,.6); }
+body.theme-autumn .btn-primary:active { transform: translateY(0); }
+body.theme-autumn .daily-claim,
+body.theme-autumn .dl-claim-btn,
+body.theme-autumn .shop-buy { background: linear-gradient(180deg, var(--gold), #c96f2a); }
+
+/* ── Игровая доска: тёплая рамка + пульсирующее свечение (вау) ── */
+body.theme-autumn .board {
+    border-color: #d98a2b;
+    background: #3f2512;
+    animation: boardGlowAutumn 3s ease-in-out infinite;
+}
+body.theme-autumn .board .cell { background: rgba(255,255,255,.07); }
+
+body.theme-autumn footer { border-top-color: #d98a2b; color: #f5c98f; }
+body.theme-autumn .footer-links a { color: #ffd9a0; }
+body.theme-autumn .modal { background: linear-gradient(180deg, #4a2c14, #2e1a0b); }
+body.theme-autumn .modal-title { color: #ffd9a0; }
+body.theme-autumn .modal-message { color: #f5c98f; }
+body.theme-autumn .modal-score { background: rgba(0,0,0,.25); border-color: #d98a2b; color: #ffd9a0; }
+body.theme-autumn .level-card { background: rgba(0,0,0,.25); }
+body.theme-autumn .level-card.unlocked:hover { background: rgba(217,138,43,.25); }
+body.theme-autumn .level-card.current { border-color: var(--gold-bright); box-shadow: 0 0 0 2px rgba(255,190,90,.4); }
+body.theme-autumn .lc-num, body.theme-autumn .lc-target { color: #ffd9a0; }
+body.theme-autumn .lc-name { color: #f5c98f; }
+body.theme-autumn .setting-option, body.theme-autumn .achievement { background: rgba(0,0,0,.25); }
+body.theme-autumn .setting-option.active { border-color: var(--gold); background: rgba(217,138,43,.14); }
+body.theme-autumn .setting-btn { background: rgba(0,0,0,.25); border-color: rgba(255,255,255,.15); color: #f5c98f; }
+body.theme-autumn .setting-btn:hover { background: rgba(217,138,43,.2); }
+body.theme-autumn .setting-btn.active { border-color: #ffd9a0; background: rgba(255,180,80,.18); color: #ffd9a0; box-shadow: 0 0 0 2px rgba(255,190,90,.25); }
+body.theme-autumn .achievement.unlocked { border-color: var(--gold-bright); background: rgba(217,138,43,.18); }
+body.theme-autumn .daily-task { background: rgba(0,0,0,.25); border-color: rgba(255,255,255,.12); }
+body.theme-autumn .daily-name { color: #f5c98f; }
+body.theme-autumn .leaderboard-row { background: rgba(0,0,0,.25); border-color: rgba(255,255,255,.12); }
+body.theme-autumn .lb-name { color: #f5c98f; }
+body.theme-autumn .leaderboard-row.me { border-color: var(--gold-bright); background: rgba(217,138,43,.18); box-shadow: 0 0 0 2px rgba(255,215,0,.25); }
+body.theme-autumn .leaderboard-row:nth-child(1) .lb-pos { background: linear-gradient(180deg, #ffd740, #ffa000); color: #4a2400; }
+body.theme-autumn .daily-login { border-color: #d98a2b; background: linear-gradient(180deg, rgba(217,138,43,.22), rgba(0,0,0,.25)); box-shadow: inset 0 0 14px rgba(217,138,43,.15); }
+body.theme-autumn .dl-day { background: rgba(0,0,0,.3); border-color: rgba(255,255,255,.12); }
+body.theme-autumn .dl-day.filled { border-color: var(--gold); background: rgba(217,138,43,.25); color: #ffd9a0; }
+body.theme-autumn .dl-day.next { border-color: var(--gold-bright); box-shadow: 0 0 0 2px rgba(255,190,90,.3); color: var(--gold-bright); }
+body.theme-autumn .boost-count { background: rgba(0,0,0,.35); }
+body.theme-autumn .boost-btn.active { border-color: var(--gold-bright); color: var(--gold-bright); background: rgba(255,180,80,.18); box-shadow: 0 0 0 2px rgba(255,215,0,.3); }
+body.theme-autumn .shop-tab { background: rgba(0,0,0,.25); border-color: rgba(255,255,255,.14); }
+body.theme-autumn .shop-tab.active { border-color: var(--gold-bright); color: var(--gold-bright); background: rgba(255,180,80,.16); }
+body.theme-autumn .shop-item { background: rgba(0,0,0,.25); border-color: rgba(255,255,255,.12); }
+body.theme-autumn .shop-name { color: #ffd9a0; }
+body.theme-autumn .chest-section { background: rgba(0,0,0,.2); border-color: #d98a2b; }
+body.theme-autumn .chest-head { color: #ffd9a0; }
+body.theme-autumn .donate-item { background: rgba(0,0,0,.25); border-color: #d98a2b; }
+
+/* ── Ежедневная головоломка и еженедельник: тёплая гамма ── */
+body.theme-autumn .daily-puzzle {
+    background: linear-gradient(135deg, rgba(90,45,10,.5), rgba(60,30,8,.45));
+    border: 2px solid rgba(255,190,90,.5);
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(255,190,90,.08);
+}
+body.theme-autumn .weekly-block {
+    background: linear-gradient(135deg, rgba(90,45,10,.5), rgba(60,30,8,.45));
+    border: 2px solid rgba(255,190,90,.5);
+    box-shadow: 0 4px 14px rgba(0,0,0,.35), inset 0 0 20px rgba(255,190,90,.06);
+}
+body.theme-autumn .ch-week { color: rgba(255,215,160,.85); }
+body.theme-autumn .weekly-card { background: rgba(0,0,0,.2); }
+body.theme-autumn .weekly-card .ch-goal strong { color: #ffd9a0; }
+
+/* ── Карта глубин: тёплый «осенний океан» ── */
+body.theme-autumn .depths-map {
+    background: linear-gradient(180deg,
+        rgba(70,40,12,.55) 0%,
+        rgba(50,28,8,.55) 45%,
+        rgba(35,18,5,.65) 100%);
+    border: 2px solid rgba(255,190,90,.4);
+}
+body.theme-autumn .dm-path-line { stroke: rgba(255,190,90,.55); }
+body.theme-autumn .dm-dot {
+    background: radial-gradient(circle at 30% 30%, rgba(255,190,90,.35), rgba(90,50,15,.9));
+    border-color: rgba(255,190,90,.8);
+    box-shadow: 0 0 12px rgba(255,190,90,.35), inset 0 -4px 10px rgba(0,0,0,.4);
+}
+body.theme-autumn .dm-node.current .dm-dot { border-color: var(--gold-bright); box-shadow: 0 0 16px rgba(255,190,90,.8), 0 0 0 4px rgba(255,190,90,.25); }
+body.theme-autumn .dm-label { border-color: rgba(255,190,90,.3); }
+body.theme-autumn .dm-badge { background: var(--gold); color: #2a1606; }
+
+/* ── Индикаторы прилива/водоворота/челленджа: тёплые палитры ── */
+body.theme-autumn .tide-indicator {
+    background: linear-gradient(90deg, rgba(60,35,10,.92), rgba(85,50,15,.88));
+    border-color: rgba(255,190,90,.3);
+}
+body.theme-autumn .tide-bar-fill { background: linear-gradient(90deg, #ffd740, #ff8f00); }
+body.theme-autumn .tide-count { color: #ffe9c0; }
+body.theme-autumn .tide-indicator.sweep { animation: tide-sweep-autumn .7s ease; }
+body.theme-autumn .threat-indicator {
+    background: linear-gradient(90deg, rgba(70,32,18,.92), rgba(100,48,20,.88));
+    border-color: rgba(255,170,120,.3);
+}
+body.theme-autumn .threat-bar-fill { background: linear-gradient(90deg, #ffb38a, #ff7043); }
+body.theme-autumn .threat-count { color: #ffd9b0; }
+body.theme-autumn .threat-indicator.sweep { animation: threat-sweep-autumn .7s ease; }
+body.theme-autumn .challenge-indicator {
+    background: linear-gradient(90deg, rgba(60,40,10,.92), rgba(120,80,15,.88));
+    border-color: rgba(255,200,80,.35);
+}
+body.theme-autumn .challenge-indicator.sweep { animation: challenge-sweep-autumn .7s ease; }
+
+/* ── Подсветка подсказки и нативная сборка (iOS/Android) ── */
+body.theme-autumn .tile.hint-flash { animation: hintFlashAutumn .5s ease 2; }
+body.theme-autumn.is-native {
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(255,150,50,.16) 0%, transparent 55%),
+        linear-gradient(160deg, var(--navy) 0%, var(--navy-mid) 55%, #5a2c12 100%);
+}
+
+/* ── Загрузочный экран: тёплый градиент (осень) ── */
+body.theme-autumn .loading-screen {
+    background:
+        radial-gradient(ellipse at 50% 30%, rgba(255,170,50,.28) 0%, transparent 60%),
+        linear-gradient(160deg, #2a1606 0%, #4a2a12 55%, #6b3a1f 100%);
+}
+body.theme-autumn .loading-emoji { filter: drop-shadow(0 8px 18px rgba(255,150,50,.45)); }
+body.theme-autumn .loading-title { color: #ffd9a0; }
+
+/* ── Осенние анимации (ключевые кадры) ── */
+@keyframes autumnShimmer {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 300% 50%; }
+}
+@keyframes boardGlowAutumn {
+    0%, 100% { box-shadow: inset 0 0 30px rgba(0,0,0,.5), 0 0 14px rgba(255,180,80,.28), 0 8px 20px rgba(0,0,0,.4); }
+    50%      { box-shadow: inset 0 0 30px rgba(0,0,0,.5), 0 0 26px rgba(255,180,80,.55), 0 8px 20px rgba(0,0,0,.4); }
+}
+@keyframes tide-sweep-autumn {
+    0%   { border-color: rgba(255,190,90,.3); }
+    30%  { border-color: rgba(255,215,0,.95); box-shadow: 0 0 14px rgba(255,215,0,.55); }
+    100% { border-color: rgba(255,190,90,.3); }
+}
+@keyframes threat-sweep-autumn {
+    0%   { border-color: rgba(255,170,120,.3); }
+    30%  { border-color: rgba(255,80,40,.95); box-shadow: 0 0 14px rgba(255,80,40,.6); }
+    100% { border-color: rgba(255,170,120,.3); }
+}
+@keyframes challenge-sweep-autumn {
+    0%   { border-color: rgba(255,200,80,.35); }
+    30%  { border-color: rgba(255,215,0,.95); box-shadow: 0 0 14px rgba(255,215,0,.55); }
+    100% { border-color: rgba(255,200,80,.35); }
+}
+@keyframes hintFlashAutumn {
+    0%, 100% { box-shadow: none; }
+    50%      { box-shadow: 0 0 0 5px rgba(255,190,90,.95), 0 0 24px rgba(255,190,90,.7); transform: translate(var(--tx,0), var(--ty,0)) scale(1.12); z-index: 5; }
+}
+
+/* ==================================================================
    СОКРОВИЩНИЦА (сундук, обмен, донат)
    ================================================================== */
 .chest-modal .modal {
@@ -2556,6 +3082,12 @@ body.theme-abyss .shop-name { color: #7fd4ff; }
     margin-bottom: 6px;
 }
 .exchange-rate { color: var(--text-muted); }
+.exchange-note {
+    font-size: .78rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    line-height: 1.35;
+}
 .donate-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2583,7 +3115,26 @@ body.theme-light .chest-head { color: #007a91; }
 body.theme-light .chest-guarantee,
 body.theme-light .chest-opened,
 body.theme-light .exchange-rate,
+body.theme-light .exchange-note,
 body.theme-light .donate-info { color: #1a5a76; }
 body.theme-light .chest-reward { color: #ff6a3d; }
 body.theme-light .donate-item { background: rgba(0,0,0,.05); border-color: #00b8d4; }
 body.theme-light .donate-name { color: #007a91; }
+
+/* ==================================================================
+   ОСЕННИЙ СЕЗОН (body.autumn-season) 🍂
+   Класс ставится на body из applyAppearance() (js/main.js), когда
+   сейчас осенний сезон (август–ноябрь) — независимо от выбранной
+   темы. Даёт тёплый загрузочный экран и листья, даже если игрок
+   не включил тему «Осень».
+   ================================================================== */
+body.autumn-season .loading-screen {
+    background:
+        radial-gradient(ellipse at 50% 30%, rgba(255,170,50,.28) 0%, transparent 60%),
+        linear-gradient(160deg, #2a1606 0%, #4a2a12 55%, #6b3a1f 100%);
+}
+body.autumn-season .loading-emoji { filter: drop-shadow(0 8px 18px rgba(255,150,50,.45)); }
+body.autumn-season .loading-title { color: #ffd9a0; }
+body.autumn-season .loading-bar { border-color: rgba(255,190,90,.5); }
+body.autumn-season .loading-bar-fill { box-shadow: 0 0 12px rgba(255,180,80,.6); }
+body.autumn-season .loading-hint { color: rgba(255,225,190,.75); }

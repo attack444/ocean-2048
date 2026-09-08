@@ -9,6 +9,7 @@
 | **Веб** | Деревянная рамка-«окошко», PWA, fullscreen-кнопка | Открыть `index.html` / задеплоить на 5mb2.ru |
 | **Android** | Без рамки, safe-area, D-pad, haptics | `npm run android` → Android Studio → AAB |
 | **iOS** | Без рамки, safe-area, D-pad, haptics | На Mac: `npm run ios` → Xcode → Archive |
+| **RuStore** | Та же Android-сборка | `npm run android` → AAB → console.rustore.ru |
 
 Предпросмотр нативного UI в браузере:
 - `index.html?platform=android`
@@ -20,6 +21,7 @@
 3. Заполните формы по гайдам:
    - [GOOGLE_PLAY.md](./GOOGLE_PLAY.md) — Data safety, IARC, listing
    - [APP_STORE.md](./APP_STORE.md) — App Privacy, Age Rating, Review notes
+   - [RUSTORE.md](./RUSTORE.md) — RuStore: консоль, подпись, листинг
 4. Сделайте **реальные скриншоты** с эмулятора/устройства (не оставляйте заглушки).
 5. Privacy Policy URL: `https://5mb2.ru/static/games/ocean-2048/privacy-policy.html`
    Контакт: `slavasundukov887@gmail.com`

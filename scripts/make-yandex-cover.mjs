@@ -5,13 +5,16 @@
 /* global console */
 import { chromium } from 'playwright';
 import { readFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT_DIR = 'D:/ocean-2048/store/shots';
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const OUT_DIR = join(ROOT, 'store', 'shots');
 mkdirSync(OUT_DIR, { recursive: true });
-const OUT = `${OUT_DIR}/yandex-cover.png`;
+const OUT = join(OUT_DIR, 'yandex-cover.png');
 
 // Актуальная иконка из icons/ (не зависит от устаревшей сборки build/yandex)
-const icon = readFileSync('D:/ocean-2048/icons/icon-512.png').toString('base64');
+const icon = readFileSync(join(ROOT, 'icons', 'icon-512.png')).toString('base64');
 
 const html = `<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><style>

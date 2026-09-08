@@ -6,7 +6,10 @@
 
 - **`main.js`** — единственный «толстый» слой: DOM, UI, игровой цикл, модалки, рекламные показы.
   Всю чистую логику делегирует в модули ниже. Не дублировать логику в main.js.
-- Остальные модули — чистые ES-модули без DOM (кроме `platform*.js` и `sound.js`), легко тестируются.
+- Остальные модули — чистые ES-модули без DOM (кроме `platform*.js`, `sound.js`, `music.js` и `atmosphere.js`), легко тестируются.
+  Чистые функции `music.js` (`computeIntensity`, `scaleNotes`, `midiToFreq`, `nextChordIndex`, `buildChord`) тестируются без DOM.
+  Чистые функции `atmosphere.js` (конфиги тем, фабрики частиц, `stepParticle`, `mergePulseValue`) тестируются без DOM;
+  класс `OceanAtmosphere` (canvas-рендер) — только в браузере.
 
 ## Модули (краткое описание)
 
@@ -29,6 +32,9 @@
 | `platform.js` | Определение платформы и нативных хаков | `applyPlatform`, `hapticLight` |
 | `platform-sdk.js` | Единый адаптер VK / Яндекс / Web: соцмеханики, лидерборд, облако, реклама | `sdk` (default) |
 | `sound.js` | Web Audio звуки | `playMove`, `playMerge`, `playWin`, `playGameOver`, `suspendSound`, `resumeSound` |
+| `music.js` | Тонкий фасад музыки: единственный режим — OST (`musicTrack='ost'`), делегирует в `ost.js` и переключает трек по контексту `setOstContext(runKind)` (турнир/дуэль → versus). Процедурная Web Audio-музыка удалена (2026-09); легаси-ключи тем ('dark'/'sakura'…) нормализуются в `normalizeTrackKey` | `startMusic`, `stopMusic`, `playTrack`, `suspendMusic`, `resumeMusic`, `setMusicEnabled`, `isMusicActive`, `getMusicState`, `setOstContext`, `normalizeTrackKey` |
+| `ost.js` | Оригинальный саундтрек: 2 MP3 Kevin MacLeod (Grand Dark Waltz — вся игра, Ancient Mystery Waltz — PvP/соревнования), HTMLAudio + loop + фейды. Чистые данные (`OST_TRACKS`, `ostModeForRunKind`) тестируются в node; плеер — browser-only | `OST_TRACK_KEY`, `OST_TRACKS`, `OST_CREDITS`, `ostTrackFor`, `ostModeForRunKind`, `playOst`, `stopOst`, `suspendOst`, `resumeOst`, `isOstActive`, `getOstState` |
+| `atmosphere.js` | «Живой океан»: процедурный канвас-фон под всеми темами (градиент, рыбы, планктон, медузы, лучи света, пузыри, лепестки). Реагирует на геймплей через `setIntensity`/`setFlow`/`setPulse`; здесь же живёт `computeIntensity` (перенесён из music.js после удаления процедурной музыки) | `OceanAtmosphere` (class), `atmosphereConfigFor`, `computeIntensity`, `makeBubble`, `makeFish`, `makePlankton`, `makeLeafParticle`, `makeJelly`, `makeLightRay`, `makeShimmer`, `spawnBurst`, `stepParticle`, `mergePulseValue`, `THEMES`, `THEME_KEYS` |
 | `native-entry.js` | Точка входа для Capacitor-бандла (`build:www`) | — |
 | `native-plugins.js` | Haptics / StatusBar / SplashScreen для нативных сборок | — |
 

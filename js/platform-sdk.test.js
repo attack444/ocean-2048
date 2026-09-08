@@ -23,7 +23,8 @@ globalThis.document = {
 };
 
 function setSearch(search) {
-    globalThis.location = { search, href: 'https://ocean2048.example/game' };
+    // hostname по умолчанию — не платформенный (важно для тестов OK/VK).
+    globalThis.location = { search, href: 'https://ocean2048.example/game', hostname: 'ocean2048.example' };
 }
 
 function setWindow(win) {
@@ -44,6 +45,7 @@ const sdk = (await import('./platform-sdk.js')).default;
 function makeSdk() {
     return Object.assign(Object.create(sdk), {
         host: 'web',
+        ok: false,
         vk: null,
         ya: null,
         player: null,
@@ -123,6 +125,81 @@ describe('sdk.init / host detection', () => {
         const s = makeSdk();
         assert.equal(await s.init(), 'yandex');
         assert.deepEqual(s.player, { name: 'Дельфин' });
+    });
+});
+
+// ── Одноклассники (VK Games) — host detection ────────────────────────────
+// OK — единая платформа VK Games: тот же VK Bridge, хост 'vk', флаг ok=true.
+// Игра грузится в iframe ok.ru (десктоп) или WebView m.ok.ru (моб. версия сайта/приложения).
+// Официальная документация: dev.vk.com → «Публикация в Одноклассниках».
+describe('sdk host detection (Одноклассники / OK)', () => {
+    it('detects vk host and ok=true when running inside ok.ru (iframe)', async () => {
+        // В iframe OK window.location.hostname = ok.ru (платформа встраивает игру по ok.ru/app/{ID})
+        setSearch(''); // href ниже переопределим отдельно
+        globalThis.location = {
+            search: '',
+            href: 'https://ok.ru/app/54731343',
+            hostname: 'ok.ru',
+        };
+        setWindow({ vkBridge: { send: async () => {} } });
+        const s = makeSdk();
+        assert.equal(await s.init(), 'vk');
+        assert.equal(s.host, 'vk');
+        assert.equal(s.ok, true, 'sdk.ok должен быть true в Одноклассниках');
+        assert.equal(s.isOk(), true);
+        assert.equal(s.isPlatform(), true);
+    });
+
+    it('detects vk host and ok=true inside m.ok.ru (mobile web)', async () => {
+        globalThis.location = {
+            search: '',
+            href: 'https://m.ok.ru/app/54731343',
+            hostname: 'm.ok.ru',
+        };
+        setWindow({ vkBridge: { send: async () => {} } });
+        const s = makeSdk();
+        assert.equal(await s.init(), 'vk');
+        assert.equal(s.ok, true);
+    });
+
+    it('detects ok=true from OK launch params even outside ok.ru host', async () => {
+        // Безопасный фолбэк: параметры OK (ok_app_id и т.п.) в query тоже указывают на OK.
+        setSearch('?ok_app_id=54731343&ok_user_id=42');
+        setWindow({ vkBridge: { send: async () => {} } });
+        const s = makeSdk();
+        assert.equal(await s.init(), 'vk');
+        assert.equal(s.ok, true);
+    });
+
+    it('detects vk host from OK launch params (detectHost sees vk)', async () => {
+        // detectHost: ok_* параметры → 'vk' (тот же VK Bridge).
+        setSearch('?ok_platform=web&ok_uid=7');
+        setWindow({});
+        const s = makeSdk();
+        assert.equal(await s.init(), 'vk');
+        assert.equal(s.ok, true);
+    });
+
+    it('keeps ok=false on plain VK (hostname vk.com)', async () => {
+        globalThis.location = {
+            search: '',
+            href: 'https://vk.com/app54731343',
+            hostname: 'vk.com',
+        };
+        setWindow({ vkBridge: { send: async () => {} } });
+        const s = makeSdk();
+        assert.equal(await s.init(), 'vk');
+        assert.equal(s.ok, false, 'на VK флаг ok должен оставаться false');
+        assert.equal(s.isOk(), false);
+    });
+
+    it('keeps ok=false on web', async () => {
+        setSearch('');
+        setWindow({});
+        const s = makeSdk();
+        assert.equal(await s.init(), 'web');
+        assert.equal(s.ok, false);
+        assert.equal(s.isOk(), false);
     });
 });
 

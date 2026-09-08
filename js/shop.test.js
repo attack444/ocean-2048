@@ -22,6 +22,16 @@ import {
     themeBonus,
     appearanceScoreMultiplier,
     appearanceBonusPercent,
+    SKIN_UPGRADE_COSTS,
+    skinBonusForLevel,
+    skinLevel,
+    skinAbility,
+    hasSkinAbility,
+    upgradeSkin,
+    SETS,
+    activeSet,
+    ownsSet,
+    setBonus,
 } from './shop.js';
 
 function baseState(overrides = {}) {
@@ -30,7 +40,7 @@ function baseState(overrides = {}) {
         inventory: { shuffle: 0, bomb: 1, x2: 0 },
         perks: {},
         unlockedSkins: ['gold'],
-        unlockedThemes: ['dark'],
+        unlockedThemes: ['dark', 'autumn'],
         ...overrides,
     };
 }
@@ -189,7 +199,14 @@ describe('shop.appearance bonuses (skins & themes)', () => {
     it('itemByKey finds skins and themes by key', () => {
         assert.equal(itemByKey('skin', 'kraken').name, 'Кракен');
         assert.equal(itemByKey('theme', 'sunset').name, 'Закат');
+        assert.equal(itemByKey('theme', 'autumn').name, 'Осень');
         assert.equal(itemByKey('skin', 'nope'), null);
+    });
+    it('autumn theme is free and owned by default', () => {
+        const autumn = itemByKey('theme', 'autumn');
+        assert.equal(autumn.price, 0);
+        assert.equal(ownsItem(baseState(), autumn), true); // в default unlockedThemes
+        assert.equal(themeBonus(baseState({ theme: 'autumn' })), 0);
     });
     it('bonus is 0 when the active skin/theme is not owned', () => {
         const st = baseState({ skin: 'kraken', theme: 'abyss' });
@@ -212,3 +229,99 @@ describe('shop.appearance bonuses (skins & themes)', () => {
         assert.equal(appearanceScoreMultiplier(st), 1);
     });
 });
+
+describe('shop.skin levels & upgrades (meta progression)', () => {
+    it('skinBonusForLevel scales L1→L2→L3 (×1, ×1.4, ×2 of base)', () => {
+        assert.equal(skinBonusForLevel(10, 1), 10);
+        assert.equal(skinBonusForLevel(10, 2), 14);
+        assert.equal(skinBonusForLevel(10, 3), 20);
+        // clamps out-of-range levels
+        assert.equal(skinBonusForLevel(10, 0), 10);
+        assert.equal(skinBonusForLevel(10, 99), 20);
+        assert.equal(skinBonusForLevel(null, 2), 0);
+    });
+    it('skinLevel defaults to 1 and reads state.skinLevels', () => {
+        assert.equal(skinLevel(baseState(), 'wood'), 1);
+        assert.equal(skinLevel(baseState({ skinLevels: { wood: 2 } }), 'wood'), 2);
+        assert.equal(skinLevel(baseState({ skinLevels: { wood: 99 } }), 'wood'), 3);
+        assert.equal(skinLevel(baseState({ skinLevels: { wood: 0 } }), 'wood'), 1);
+    });
+    it('upgradeSkin costs and increments the level', () => {
+        const st = baseState({ doubloons: 1000, unlockedSkins: ['gold', 'wood'] });
+        const res = upgradeSkin(st, 'wood');
+        assert.equal(res.ok, true);
+        assert.equal(res.level, 2);
+        assert.equal(st.doubloons, 1000 - SKIN_UPGRADE_COSTS[1]);
+        assert.equal(st.skinLevels.wood, 2);
+        // second upgrade to L3
+        assert.equal(upgradeSkin(st, 'wood').level, 3);
+        assert.equal(st.doubloons, 1000 - SKIN_UPGRADE_COSTS[1] - SKIN_UPGRADE_COSTS[2]);
+    });
+    it('upgradeSkin rejects non-owned, poor and maxed skins', () => {
+        assert.deepEqual(upgradeSkin(baseState(), 'wood'), { ok: false, reason: 'not_owned' });
+        assert.deepEqual(upgradeSkin(baseState({ doubloons: 10, unlockedSkins: ['gold', 'wood'] }), 'wood'), { ok: false, reason: 'not_enough' });
+        const st = baseState({ doubloons: 5000, unlockedSkins: ['gold', 'wood'], skinLevels: { wood: 3 } });
+        assert.deepEqual(upgradeSkin(st, 'wood'), { ok: false, reason: 'max' });
+    });
+    it('hasSkinAbility requires owned, active and L3', () => {
+        const owned = baseState({ unlockedSkins: ['gold', 'wood'] });
+        assert.equal(hasSkinAbility(owned, 'wood'), false);            // owned but not active
+        const active = baseState({ skin: 'wood', unlockedSkins: ['gold', 'wood'] });
+        assert.equal(hasSkinAbility(active, 'wood'), false);           // active but L1
+        const maxed = baseState({ skin: 'wood', unlockedSkins: ['gold', 'wood'], skinLevels: { wood: 3 } });
+        assert.equal(hasSkinAbility(maxed, 'wood'), true);
+        assert.equal(hasSkinAbility(maxed, 'gem'), false);             // not owned
+    });
+    it('skinAbility returns the description from the catalog', () => {
+        assert.ok(skinAbility(baseState(), 'kraken').includes('бомба'));
+        assert.equal(skinAbility(baseState(), 'nope'), null);
+    });
+    it('skinBonusForLevel raises the active skin bonus', () => {
+        const st = baseState({ skin: 'storm', unlockedSkins: ['gold', 'storm'] });
+        assert.equal(skinBonus(st), 20);
+        const l2 = baseState({ skin: 'storm', unlockedSkins: ['gold', 'storm'], skinLevels: { storm: 2 } });
+        assert.equal(skinBonus(l2), 28);
+        const l3 = baseState({ skin: 'storm', unlockedSkins: ['gold', 'storm'], skinLevels: { storm: 3 } });
+        assert.equal(skinBonus(l3), 40);
+    });
+});
+
+describe('shop.sets (synergy bonuses)', () => {
+    it('SETS has pairs with positive bonuses', () => {
+        assert.ok(SETS.length >= 5);
+        for (const s of SETS) {
+            assert.ok(s.bonus > 0, `set ${s.name} bonus`);
+            assert.ok(skinItem(s) !== null && themeItem(s) !== null, `set ${s.name} parts exist`);
+        }
+    });
+    it('activeSet is null when skin+theme do not match', () => {
+        const st = baseState({ skin: 'wood', theme: 'dark', unlockedSkins: ['gold', 'wood'] });
+        assert.equal(activeSet(st), null);
+    });
+    it('activeSet finds the pair when both are active', () => {
+        const st = baseState({ skin: 'wood', theme: 'forest', unlockedSkins: ['gold', 'wood'], unlockedThemes: ['dark', 'forest'] });
+        const set = activeSet(st);
+        assert.ok(set && set.name === 'Коралловый лес');
+        assert.equal(setBonus(st), 10);
+    });
+    it('ownsSet is true even when not currently active', () => {
+        const st = baseState({ skin: 'wood', theme: 'dark', unlockedSkins: ['gold', 'wood'], unlockedThemes: ['dark', 'forest'] });
+        const set = SETS.find(s => s.name === 'Коралловый лес');
+        assert.equal(ownsSet(st, set), true);
+        assert.equal(setBonus(st), 0); // не активен — бонуса нет
+    });
+    it('appearanceBonusPercent includes skin + theme + active set', () => {
+        const st = baseState({
+            skin: 'wood', theme: 'forest',
+            unlockedSkins: ['gold', 'wood'],
+            unlockedThemes: ['dark', 'forest'],
+            skinLevels: { wood: 3 },
+        });
+        // скин L3 (5×2=10) + тема (10) + набор (10) = 30
+        assert.equal(appearanceBonusPercent(st), 30);
+    });
+});
+
+// локальный хелпер для проверки «частей» наборов
+function skinItem(s) { return itemByKey('skin', s.skin); }
+function themeItem(s) { return itemByKey('theme', s.theme); }

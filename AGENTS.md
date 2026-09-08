@@ -37,7 +37,9 @@
 │   ├── missions.js     # сюжетные миссии
 │   ├── platform.js     # web / ios / android
 │   ├── platform-sdk.js # адаптер VK / Яндекс / Web (вкл. соцмеханики и рекламу)
-│   ├── sound.js        # Web Audio
+│   ├── sound.js        # Web Audio (звуковые эффекты)
+│   ├── music.js        # OST-фасад (вся музыка — оригинальный саундтрек)
+│   ├── ost.js          # плеер audio/ost/*.mp3 (Grand Dark / Ancient Mystery, Kevin MacLeod CC BY)
 │   ├── native-entry.js # точка входа для Capacitor-бандла
 │   └── native-plugins.js
 ├── js/*.test.js        # юнит-тесты (node:test)

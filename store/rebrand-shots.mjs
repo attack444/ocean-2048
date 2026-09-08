@@ -2,8 +2,10 @@
 // Скрипт оставлен как безопасный no-op-справочник актуальных строк (старые
 // названия убраны полностью, включая ключи БД).
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const dir = 'D:/ocean-2048/store/shots';
+const dir = join(dirname(fileURLToPath(import.meta.url)), 'shots');
 const files = readdirSync(dir).filter((f) => f.startsWith('dom-') && f.endsWith('.html'));
 
 const repl = [

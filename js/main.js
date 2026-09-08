@@ -3,6 +3,8 @@
 import Game from './game.js';
 import { applyPlatform, hapticLight } from './platform.js';
 import { playMove, playMerge, playWin, playGameOver, suspendSound, resumeSound } from './sound.js';
+import { stopMusic, playTrack, suspendMusic, resumeMusic, setOstContext } from './music.js';
+import { OceanAtmosphere, computeIntensity } from './atmosphere.js';
 import sdk from './platform-sdk.js';
 import { applyLevelWin, applyLevelGameOver, isLevelUnlocked } from './progress.js';
 import { resolveConflict, mergeBoardSaves } from './cloud-sync.js';
@@ -11,6 +13,24 @@ import { comboReward, STREAK_THRESHOLD } from './combo.js';
 import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel } from './levels.js';
 import { ACHIEVEMENTS, evaluateAchievements } from './achievements.js';
 import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, makeRng, seedFromDate } from './daily-puzzle.js';
+import {
+    ensureTournament, recordTournamentResult, tournamentInfo,
+    tournamentStartBoard, tournamentSeed,
+    TOURNAMENT_MOVES,
+} from './tournament.js';
+import {
+    ensureInvite, recordInvite, claimWelcomeBonus, inviteInfo,
+    INVITE_REWARD, WELCOME_BONUS,
+} from './invite.js';
+import {
+    ensureRequests, recordRequest, requestsInfo, buildChallengeText,
+    REQUEST_REWARD,
+} from './request.js';
+import {
+    ensureDuel, clearDuelPending, applyDuelChallenge, recordDuelResult, duelInfo,
+    duelStartBoard, duelSeed, buildDuelRequestKey,
+    DUEL_MOVES, DUEL_WIN_REWARD, DUEL_LOSE_REWARD,
+} from './duel.js';
 import { DEPTH_NODES, depthRewardFor, depthStatus, canClaimDepthReward, claimDepthReward, pendingDepthRewards } from './depths-map.js';
 import { missionForLevel, missionProgress, isMissionComplete, isMissionClaimed, claimMissionReward } from './missions.js';
 import { DAILY_TASKS, ensureDaily as ensureDailyState, dailyMetric as dailyMetricState, checkDaily as checkDailyState } from './daily.js';
@@ -26,10 +46,15 @@ import {
     getShopItem, itemsByType, ownsItem, buyItem, useBoost, boostCount, ownsPerk,
     applyCoinReward, effectiveUndoLimit,
     appearanceScoreMultiplier, appearanceBonusPercent,
+    skinLevel, upgradeSkin, hasSkinAbility, skinBonusForLevel, itemByKey,
+    SETS, activeSet, ownsSet,
+    SKIN_UPGRADE_COSTS, MAX_SKIN_LEVEL,
 } from './shop.js';
 import {
     openChest, exchangePointsForDoubloons, exchangeUsedToday, todayKey, DONATE_PACKS,
+    creditGamePoints,
 } from './chest.js';
+import { makeLeaf, stepLeaf, shouldShowAutumn, AUTUMN_OPTIONS } from './autumn.js';
 
 const STORAGE_KEY = 'ocean2048_v1';
 const SAVE_KEY    = 'ocean2048_saves';
@@ -40,12 +65,18 @@ const SAVE_KEY    = 'ocean2048_saves';
 function loadState() {
     const defaults = {
         currentLevel: 1,
+        // Режим игры: 'depth' (Глубины) / 'classic' (Классика 2048)
+        mode: 'depth',
+        // Рекорд в режиме «Классика» (отдельный от уровней)
+        classicBest: 0,
         unlockedLevels: [1],
         bestScores: {},
         bestTotal: 0,
         gamesPlayed: 0,
         bestTile: 0,
         sound: true,
+        music: true,
+        musicTrack: 'ost',      // по умолчанию — оригинальный саундтрек (Grand Dark Waltz / Ancient Mystery Waltz)
         theme: 'dark',
         skin: 'gold',
         infinity: false,
@@ -58,7 +89,8 @@ function loadState() {
         // Жемчужины и кастомизация
         doubloons: 0,
         unlockedSkins: ['gold'],
-        unlockedThemes: ['dark'],
+        skinLevels: {},
+        unlockedThemes: ['dark', 'autumn'],
         // Экономика: магазин, ежедневный вход
         inventory: {},
         perks: {},
@@ -79,6 +111,14 @@ function loadState() {
         lastAdTime: 0,
         // Фаза 2: одноразовые соц-бонусы за добавление в избранное / на главный экран
         socialBonuses: {},
+        // Ежедневный турнир глубин 🏆: результат дня и выданные пороговые награды
+        tournament: { date: '', best: 0, played: false, claimed: [] },
+        // Приглашение с наградой 👥: дневной лимит наград и приветственный бонус
+        invite: { date: '', count: 0, welcomeClaimed: false },
+        // Сообщение-вызов 💪: дневной лимит наград за отправленные вызовы
+        requests: { date: '', count: 0 },
+        // Дуэль дня ⚔️: общая доска, результат против счёта соперника (из vk_request_key)
+        duel: { date: '', best: 0, played: false, wins: 0, claimed: [], pendingScore: 0 },
         // Метка последнего изменения — для разрешения конфликтов облако/локально
         updatedAt: 0,
         // Онбординг уже показан
@@ -86,7 +126,19 @@ function loadState() {
     };
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return { ...defaults, ...JSON.parse(raw) };
+        if (raw) {
+            const state = { ...defaults, ...JSON.parse(raw) };
+            // Осень — бесплатная сезонная тема: открываем даже для старых сохранений.
+            if (!Array.isArray(state.unlockedThemes) || !state.unlockedThemes.includes('autumn')) {
+                state.unlockedThemes = [...new Set([...(state.unlockedThemes || []), 'autumn'])];
+            }
+            // Музыка: процедурные темы удалены — любые их ключи ('dark', 'sakura', ...)
+            // из старых сейвов трактуем как включённый OST; 'off' остаётся выключенным.
+            if (state.musicTrack && state.musicTrack !== 'off') {
+                state.musicTrack = 'ost';
+            }
+            return state;
+        }
     } catch (_) {}
     return defaults;
 }
@@ -116,9 +168,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const levelTargetEl  = $('level-target');
     const restartBtn     = $('restart-btn');
     const levelSelectBtn = $('level-select-btn');
+    // Режим игры: Глубины (основная игра) / Классика (чистый 2048)
+    const modeDepthBtn   = $('mode-depth');
+    const modeClassicBtn = $('mode-classic');
     const fullscreenBtn  = $('fullscreen-btn');
     const undoBtn        = $('undo-btn');
     const soundBtn       = $('sound-btn');
+    const musicOptions   = $('music-options');
+    const settingsMusic  = $('settings-music');
     const settingsBtn    = $('settings-btn');
     const hintBtn        = $('hint-btn');
     const movesEl        = $('moves');
@@ -180,6 +237,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dpBest   = $('dp-best');
     const dpDone   = $('dp-done');
     const dpPlay   = $('dp-play-btn');
+
+    // Ежедневный турнир глубин 🏆 (онлайн: одна доска на всех в день)
+    const tournamentBlock  = $('tournament-block');
+    const tournamentDate   = $('tournament-date');
+    const tournamentDesc   = $('tournament-desc');
+    const tournamentMoves  = $('tournament-moves');
+    const tournamentBest   = $('tournament-best');
+    const tournamentRewards = $('tournament-rewards');
+    const tournamentPlay   = $('tournament-play-btn');
+
+    // Дуэль дня ⚔️ (асинхронная, общий сид): вызов друга на ту же доску
+    const duelBlock   = $('duel-block');
+    const duelDate    = $('duel-date');
+    const duelDesc    = $('duel-desc');
+    const duelMoves   = $('duel-moves');
+    const duelBest    = $('duel-best');
+    const duelStats   = $('duel-stats');
+    const duelOpp     = $('duel-opponent');
+    const duelPlay    = $('duel-play-btn');
+    const duelChallengeBtn = $('duel-challenge-btn');
 
     // Сюжетная миссия глубины 🎯
     const missionBar    = $('mission-bar');
@@ -328,30 +405,108 @@ document.addEventListener('DOMContentLoaded', async () => {
     const donateInfo      = $('donate-info');
 
     const confettiEl    = $('confetti');
-    const toastContainer = $('toast-container');
-
-    const dpadUp    = $('dpad-up');
-    const dpadDown  = $('dpad-down');
-    const dpadLeft  = $('dpad-left');
-    const dpadRight = $('dpad-right');
 
     let state = loadState();
     ensureChallenges(state); // Режим «Челлендж» ⏱️: гарантируем записи по уровням
     ensureWeekly(state);     // Еженедельный челлендж 📅: гарантируем запись текущей недели
+    ensureTournament(state); // Ежедневный турнир глубин 🏆: гарантируем запись текущего дня
+    ensureInvite(state);     // Приглашение с наградой 👥: обнуляем дневной лимит при смене даты
+    ensureRequests(state);   // Сообщение-вызов 💪: обнуляем дневной лимит при смене даты
+    ensureDuel(state);       // Дуэль дня ⚔️: гарантируем запись текущего дня
     let game  = null;
+    // Текущий режим: 'depth' (Глубины — основная игра) или 'classic' (Классика 2048)
+    let gameMode = state.mode === 'classic' ? 'classic' : 'depth';
     let lastScore = 0;
+    // Сколько очков текущей партии уже зачислено в баланс обмена (pointsBalance).
+    // Сбрасывается при каждом старте/перезапуске партии (beginRun), чтобы одна
+    // партия не могла «задвоить» очки через повторные завершения.
+    let runPointsCredited = 0;
     let cloudSaveTimer = null;
+    // Тип текущей партии: 'depth' | 'classic' | 'puzzle' | 'tournament' |
+    // 'duel' | 'challenge' | 'weekly'. Нужен, чтобы saveBoard() не писал
+    // спец-режимы в чужие слоты сохранений (saves[levelId]/saves[0]),
+    // а «Заново» перезапускал ТОТ ЖЕ режим (в спец-режимах с общей доской
+    // дня нельзя пересоздавать доску через game.init() — ломается сид).
+    let runKind = 'depth';
+
     // Режим «Челлендж» ⏱️: активна ли сейчас партия с лимитом ходов
     let challengeActive = false;
     // Еженедельный челлендж 📅: активна ли сейчас партия недельного челленджа
     let weeklyActive = false;
+    // Ежедневный турнир глубин 🏆: активна ли сейчас турнирная партия
+    let tournamentActive = false;
+    // Дуэль дня ⚔️: активна ли сейчас дуэльная партия
+    let duelActive = false;
     // «Спасение» после game over: счётчик использований в текущей партии,
     // защита от двойного нажатия и отложенный interstitial (отменяется при спасении)
     let reviveCount = 0;
     let reviveBusy = false;
+
+    /**
+     * Зачислить очки партии в баланс обмена (Обмен очков в Сокровищнице).
+     * Вызывается из модалок окончания партии; защита от двойного начисления —
+     * через runPointsCredited (начисляется только разница с уже зачтённым).
+     */
+    function creditGamePointsForRun(finalScore) {
+        const res = creditGamePoints(state, finalScore, runPointsCredited);
+        if (res.gained <= 0) return 0;
+        runPointsCredited = res.total;
+        saveState(state);
+        pushCloudSave();
+        return res.gained;
+    }
+
+    /**
+     * Обновить глобальные рекорды партии (bestTotal/bestTile). Вызывается из
+     * onScoreUpdate ВСЕХ режимов (глубины, классика, головоломка, турнир, дуэль,
+     * челлендж, недельный): ежедневные задания «Собери плитку 256/512» и «5000
+     * очков за партию» читают именно эти поля, поэтому рекорд должен расти
+     * в любой игре, а не только на глубинах.
+     */
+    function updateRunBest(score) {
+        if (score > (state.bestTotal || 0)) {
+            state.bestTotal = score;
+            saveState(state);
+            // Пульс рекорда (в классике табло показывает classicBest — не пульсируем)
+            if (bestEl && gameMode !== 'classic') {
+                bestEl.classList.remove('best-pulse');
+                void bestEl.offsetWidth;
+                bestEl.classList.add('best-pulse');
+            }
+        }
+        if (game) {
+            const mt = game.getMaxTile();
+            if (mt > (state.bestTile || 0)) {
+                state.bestTile = mt;
+                saveState(state);
+            }
+        }
+    }
+
+    /**
+     * Какой уровень стартовать при входе в режим «Глубины».
+     * Головоломка/турнир/дуэль сохраняют currentLevel = 0 как маркер «не уровень» —
+     * в этом случае возвращаемся на самый глубокий из открытых.
+     */
+    function resolveStartLevel() {
+        const cl = Number(state.currentLevel);
+        const unlocked = Array.isArray(state.unlockedLevels) && state.unlockedLevels.length
+            ? state.unlockedLevels.slice().sort((a, b) => a - b)
+            : [1];
+        return unlocked.includes(cl) ? cl : unlocked[unlocked.length - 1];
+    }
+
+    /** Общая точка старта партии (любой режим): сброс счётчика зачтённых очков. */
+    function beginRun() {
+        runPointsCredited = 0;
+    }
+    // Способности скинов «Вулкан»/«Кракен» (L3): бомба бесплатно 1 раз за партию
+    let freeBombUsed = false;
     let pendingInterstitial = null;
     // Донат: защита от повторного нажатия, пока окно платежа открыто
     let donateBusy = false;
+    // Донат: каталог товаров VK (id из кабинета VK → Платежи), загружается при открытии
+    let vkCatalog = null;
     // Статистика текущей партии для сюжетной миссии 🎯 (сбрасывается при запуске уровня)
     let missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
 
@@ -361,6 +516,166 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Доступность: пользователь просит меньше анимаций
     const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+    // Автоподгонка доски под свободную высоту экрана (п.2 модерации VK):
+    // квадрат доски не должен вылезать за нижний край и обрезаться. Доступная
+    // высота считается с учётом шапки, индикаторов, D-pad, кнопок и бустов.
+    const mainEl    = document.querySelector('main');
+    const boardWrap = $('board-wrap');
+    const fitBoard = () => {
+        if (!mainEl || !boardWrap || !boardEl) return;
+        const availW = mainEl.clientWidth;
+        const others = Array.from(mainEl.children).filter(el => el !== boardWrap && el.offsetHeight > 0);
+        const otherH = others.reduce((s, el) => s + el.offsetHeight, 0);
+        // Зазоры между видимыми элементами main (gap: 6px)
+        const visibleCount = others.length + (boardWrap.offsetHeight > 0 ? 1 : 0);
+        const gaps = Math.max(0, visibleCount - 1) * 6;
+        const availH = Math.max(120, mainEl.clientHeight - otherH - gaps);
+        const side = Math.min(availW, availH);
+        boardWrap.style.width = side + 'px';
+        boardEl.style.maxWidth = side + 'px';
+        // Размер доски изменился — плитки на старых пиксельных координатах
+        // «съезжают» с клеток. Пересчитываем позиции без пересоздания DOM.
+        if (game && typeof game.relayout === 'function') game.relayout();
+    };
+    if (mainEl && boardWrap) {
+        // Пересчёт при изменении размеров окна/контейнера и при появлении/скрытии
+        // индикаторов в main (прилив 🌊, водоворот 🌪️, акула 🦈, челлендж ⏱️, миссия 🎯).
+        new ResizeObserver(fitBoard).observe(mainEl);
+        new MutationObserver(fitBoard).observe(mainEl, {
+            subtree: true, attributes: true, attributeFilter: ['hidden', 'class'],
+        });
+    }
+
+    // ── Осень: падающие листья (канвас-слой) ──────────────────
+    // Листья видны в осенний сезон (август–ноябрь) или при включённой теме
+    // «Осень». Чистая логика — js/autumn.js; здесь только канвас и rAF.
+    const autumnLayer = document.createElement('canvas');
+    autumnLayer.className = 'autumn-layer';
+    autumnLayer.width = window.innerWidth;
+    autumnLayer.height = window.innerHeight;
+    document.body.appendChild(autumnLayer);
+    const autumnCtx = autumnLayer.getContext('2d');
+    let autumnLeaves = [];
+    let autumnAnimId = 0;
+    let autumnLastT = 0;
+
+    function resizeAutumnCanvas() {
+        autumnLayer.width = window.innerWidth;
+        autumnLayer.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeAutumnCanvas);
+
+    function resetAutumnLeaves() {
+        autumnLeaves = [];
+        if (!autumnCtx) return;
+        const count = AUTUMN_OPTIONS.count;
+        for (let i = 0; i < count; i++) {
+            autumnLeaves.push(makeLeaf(autumnLayer.width, autumnLayer.height));
+        }
+    }
+
+    function autumnTick(t) {
+        autumnAnimId = requestAnimationFrame(autumnTick);
+        if (!autumnCtx || !autumnLeaves.length) return;
+        const dt = Math.min(0.05, (t - autumnLastT) / 1000 || 0.016);
+        autumnLastT = t;
+        autumnCtx.clearRect(0, 0, autumnLayer.width, autumnLayer.height);
+        autumnCtx.textAlign = 'center';
+        autumnCtx.textBaseline = 'middle';
+        const w = autumnLayer.width, h = autumnLayer.height;
+        for (let i = 0; i < autumnLeaves.length; i++) {
+            const leaf = autumnLeaves[i];
+            const onScreen = stepLeaf(leaf, dt, w, h);
+            if (!onScreen) {
+                autumnLeaves[i] = makeLeaf(w, h);
+                continue;
+            }
+            autumnCtx.globalAlpha = leaf.opacity;
+            autumnCtx.font = `${leaf.size}px "Segoe UI", sans-serif`;
+            autumnCtx.fillText(leaf.emoji, leaf.x, leaf.y);
+        }
+        autumnCtx.globalAlpha = 1;
+    }
+
+    function startAutumn() {
+        if (autumnAnimId || reduceMotion || !autumnCtx) return;
+        resetAutumnLeaves();
+        autumnLastT = performance.now();
+        autumnAnimId = requestAnimationFrame(autumnTick);
+    }
+    function stopAutumn() {
+        if (autumnAnimId) cancelAnimationFrame(autumnAnimId);
+        autumnAnimId = 0;
+        autumnLeaves = [];
+        if (autumnCtx) autumnCtx.clearRect(0, 0, autumnLayer.width, autumnLayer.height);
+    }
+    // Пауза листьев: замораживаем кадр (не очищая слой), при возобновлении — продолжаем.
+    function pauseAutumn() {
+        if (autumnAnimId) cancelAnimationFrame(autumnAnimId);
+        autumnAnimId = 0;
+    }
+    function resumeAutumn() {
+        if (autumnAnimId || !autumnLeaves.length || reduceMotion || !autumnCtx) return;
+        autumnLastT = performance.now();
+        autumnAnimId = requestAnimationFrame(autumnTick);
+    }
+
+    // Осенний сезон без включённой темы — листья поверх любого фона (но не «Осени»,
+    // там они тоже уместны). При выключенной анимации и reduce-motion — не запускаем.
+    if (shouldShowAutumn(state.theme || 'dark')) startAutumn();
+
+    // ── «Живой океан»: процедурный фон-канвас под всеми темами ────────────
+    // Один полноэкранный canvas, рисует градиент темы, обитателей (рыбы, планктон,
+    // медузы, пузыри, лучи света, лепестки) и реагирует на геймплей через
+    // setIntensity / setPulse — отклик на геймплей (музыка — готовая запись OST
+    // и под партию не меняется).
+    const atmosphereLayer = document.createElement('canvas');
+    atmosphereLayer.className = 'atmosphere-layer';
+    document.body.insertBefore(atmosphereLayer, document.body.firstChild);
+    const ocean = new OceanAtmosphere(atmosphereLayer, { reduceMotion });
+    ocean.setTheme(state.theme || 'dark', window.innerWidth < 480 ? 'mobile' : window.innerWidth < 900 ? 'tablet' : 'desktop');
+
+    // Синхронизация «живого океана» с геймплеем (интенсивность → насыщенность света,
+    // скорость течения → суета обитателей).
+    function syncAtmosphereToGame() {
+        if (!game) return;
+        const tide = game.getTide();
+        const threat = game.getMovesPenalty();
+        const shark = game.getShark();
+        const intensity = computeIntensity({
+            streak: game.streak || 0,
+            movesWithoutMerge: threat ? threat.movesWithoutMerge : 0,
+            maxWithoutMerge: threat ? threat.maxWithoutMerge : 1,
+            tideLevel: tide ? tide.level : 0,
+            sharkActive: !!(shark && typeof shark.pos === 'number'),
+            threatLevel: threat ? threat.movesWithoutMerge / Math.max(1, threat.maxWithoutMerge) : 0,
+        });
+        ocean.setIntensity(intensity);
+        // Скорость течения = базовое + серия (чем дольше серия, тем живее вода)
+        const flow = Math.min(1, 0.4 + (game.streak || 0) * 0.08);
+        ocean.setFlow(flow);
+    }
+
+    // Визуальный пульс-отклик на события геймплея.
+    function atmospherePulse(kind) {
+        ocean.setPulse(kind);
+    }
+
+    function setAtmosphereTheme(theme) {
+        const size = window.innerWidth < 480 ? 'mobile' : window.innerWidth < 900 ? 'tablet' : 'desktop';
+        ocean.setTheme(theme, size);
+    }
+
+    function startAtmosphere() {
+        if (reduceMotion) return;
+        ocean.start();
+    }
+    function pauseAtmosphere() { ocean.pause(); }
+    function resumeAtmosphere() {
+        if (reduceMotion) return;
+        ocean.resume();
+    }
 
     // Фаза 1: пузырьки-фон за доской (создаются один раз, GPU-анимация)
     const bubblesEl = $('bubbles');
@@ -419,8 +734,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function saveBoard() {
         if (!game) return;
+        // Только партии ГЛУБИН сохраняют доску. Спец-режимы (головоломка,
+        // турнир, дуэль, челлендж, недельный) используют currentLevel как
+        // контекст (0 или levelId) — их доска детерминированная (общий сид дня),
+        // и она НЕ должна затирать слот сохранения реального уровня глубины.
+        // Маркер режима — runKind (сравнение с currentLevel недостаточно:
+        // челлендж/недельник ставят currentLevel в настоящий levelId 1..7).
+        if (runKind !== 'depth') return;
+        const lvl = Number(state.currentLevel);
+        if (!Number.isInteger(lvl) || lvl < 1 || lvl > 7) return;
         const saves = loadSaves();
-        saves[state.currentLevel] = { board: game.getState(), ts: Date.now() };
+        saves[lvl] = { board: game.getState(), ts: Date.now() };
         try { localStorage.setItem(SAVE_KEY, JSON.stringify(saves)); } catch (_) {}
     }
 
@@ -496,6 +820,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // (меню/пауза) до срабатывания game_api_pause, после resume не запускаем.
     const onPlatformPause = () => {
         suspendSound();
+        suspendMusic();
+        pauseAutumn();
+        pauseAtmosphere();
         platformPaused = true;
         if (gameplayActive) {
             gameplayWasActive = true;
@@ -505,6 +832,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     const onPlatformResume = () => {
         resumeSound();
+        resumeMusic();
+        resumeAutumn();
+        resumeAtmosphere();
         platformPaused = false;
         if (gameplayWasActive) {
             gameplayWasActive = false;
@@ -530,18 +860,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateStats() {
-        if (bestEl) bestEl.textContent = (state.bestTotal || 0).toLocaleString('ru');
+        // В режиме «Классика» показываем отдельный рекорд классики
+        if (bestEl) {
+            const best = gameMode === 'classic' ? (state.classicBest || 0) : (state.bestTotal || 0);
+            bestEl.textContent = best.toLocaleString('ru');
+        }
         const gp = $('games-played'); if (gp) gp.textContent = (state.gamesPlayed || 0).toLocaleString('ru');
         const bt = $('best-tile');    if (bt) bt.textContent = (state.bestTile || 0).toLocaleString('ru');
         if (soundBtn) soundBtn.textContent = state.sound === false ? '🔇' : '🔊';
+        // Музыка: чекбокс и подсветка активного трека (OST / Выкл)
+        if (settingsMusic) settingsMusic.checked = state.music !== false;
+        if (musicOptions) musicOptions.querySelectorAll('.music-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.track === (state.musicTrack || 'ost'));
+        });
         updateDoubloons();
     }
 
+    // Последняя показанная серия (для триггера комбо-эффекта на доске)
+    let lastComboShown = 0;
     function renderCombo() {
         if (!comboEl) return;
         const s = game ? (game.streak || 0) : 0;
         comboEl.textContent = s.toLocaleString('ru');
         comboEl.classList.toggle('active', s >= STREAK_THRESHOLD);
+        // Комбо-эффект на доске: при росте серии слияний — вспышка + «Комбо ×N»
+        if (s === 0) lastComboShown = 0;
+        if (s >= 2 && s > lastComboShown) comboBurstOnBoard(s);
+        lastComboShown = s;
+    }
+
+    /** Вспышка доски + всплывающий текст «Комбо ×N» при росте серии слияний. */
+    function comboBurstOnBoard(s) {
+        if (!boardEl || !boardEl.isConnected) return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        // Золотое свечение рамки доски
+        boardEl.classList.remove('combo-glow');
+        void boardEl.offsetWidth;
+        boardEl.classList.add('combo-glow');
+        setTimeout(() => boardEl.classList.remove('combo-glow'), 700);
+        // Всплывающий текст над доской
+        let pop = boardEl.querySelector(':scope > .combo-pop');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.className = 'combo-pop';
+            boardEl.appendChild(pop);
+        }
+        pop.textContent = 'Комбо ×' + s;
+        pop.classList.remove('pop');
+        void pop.offsetWidth;
+        pop.classList.add('pop');
     }
 
     function updateMoves() {
@@ -708,6 +1075,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         sharkIndicator.classList.add('sweep');
     }
 
+    // ── «Живой океан»: синхронизация с геймплеем ────────────────────────────────
+    // Процедурная музыка удалена: саундтрек (js/ost.js) — готовая запись и под
+    // геймплей не меняется. Атмосфера по-прежнему реагирует на партию через
+    // syncAtmosphereToGame() (вызывается в onSave каждого режима).
+
+    /** Пульс-событие геймплея → визуальный отклик океана (свет/частицы). */
+    function gamePulse(kind) {
+        atmospherePulse(kind);
+    }
+
     /** Обновить индикатор «Челлендж» ⏱️/📅: цель и сколько ходов осталось из лимита. */
     function updateChallengeIndicator() {
         if (!challengeIndicator) return;
@@ -734,10 +1111,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateHeader() {
-        const lv = currentLevelDef();
-        levelNumEl.textContent    = lv.id;
-        levelNameEl.textContent   = `${lv.rank} ${lv.name}`;
-        levelTargetEl.textContent = lv.target.toLocaleString('ru');
+        if (gameMode === 'classic') {
+            // Режим «Классика»: чистый 2048 — без уровня и цели-числа
+            levelNumEl.textContent    = '–';
+            levelNameEl.textContent   = '🎮 Классика 2048';
+            levelTargetEl.textContent = '2048';
+            // Скрываем элементы уровней через класс body
+            document.body.classList.add('mode-classic');
+            document.body.classList.remove('mode-depth');
+        } else {
+            const lv = currentLevelDef();
+            levelNumEl.textContent    = lv.id;
+            levelNameEl.textContent   = `${lv.rank} ${lv.name}`;
+            levelTargetEl.textContent = lv.target.toLocaleString('ru');
+            document.body.classList.add('mode-depth');
+            document.body.classList.remove('mode-classic');
+        }
         updateStats();
         updateMoves();
     }
@@ -747,12 +1136,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Внешний вид: тема и скин
-    const THEME_CLASSES = ['theme-dark', 'theme-light', 'theme-forest', 'theme-sunset', 'theme-abyss'];
+    const THEME_CLASSES = ['theme-dark', 'theme-light', 'theme-autumn', 'theme-forest', 'theme-sunset', 'theme-abyss', 'theme-sakura'];
     const SKIN_CLASSES  = ['skin-gold', 'skin-wood', 'skin-gem', 'skin-ice', 'skin-fire', 'skin-storm', 'skin-pearl', 'skin-abyss', 'skin-kraken'];
     function applyAppearance() {
         document.body.classList.remove(...THEME_CLASSES, ...SKIN_CLASSES);
         document.body.classList.add('theme-' + (state.theme || 'dark'));
         document.body.classList.add('skin-' + (state.skin || 'gold'));
+        // Осенний сезон: класс на body, чтобы тёплый загрузочный экран и листья
+        // были видны даже без включённой темы «Осень» (август–ноябрь).
+        if (shouldShowAutumn(state.theme || 'dark')) {
+            document.body.classList.add('autumn-season');
+        } else {
+            document.body.classList.remove('autumn-season');
+        }
+        // «Живой океан»: переключаем канвас-фон на тему
+        setAtmosphereTheme(state.theme || 'dark');
     }
 
     /** Стартовая плитка новой партии с учётом перков «Бонусная плитка» / «Глубокий старт». */
@@ -771,10 +1169,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function tideConfigWithPerks(id) {
         const cfg = tideConfigForLevel(id);
         if (!cfg) return null;
-        if (ownsPerk(state, 'tideSlow')) {
-            return { ...cfg, interval: (cfg.interval || 10) + 1 };
-        }
-        return cfg;
+        let interval = cfg.interval || 10;
+        if (ownsPerk(state, 'tideSlow')) interval += 1;
+        // Скин «Бездна» (L3): +1 ход к приливу — прилив наступает позже.
+        if (hasSkinAbility(state, 'abyss')) interval += 1;
+        return { ...cfg, interval };
     }
 
     function settingLabel(btn) {
@@ -789,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateSettingsUI() {
         if (settingsSound)    settingsSound.checked    = state.sound !== false;
+        if (settingsMusic)    settingsMusic.checked    = state.music !== false;
         if (settingsInfinity) settingsInfinity.checked = !!state.infinity;
         if (settingsLargeText) settingsLargeText.checked = !!state.largeText;
         if (settingsAnimSpeed) {
@@ -804,10 +1204,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         if (skinOptions) skinOptions.querySelectorAll('.setting-btn').forEach(b => {
             const price = Number(b.dataset.price) || 0;
-            const unlocked = price === 0 || (state.unlockedSkins || []).includes(b.dataset.skin);
+            const key = b.dataset.skin;
+            const unlocked = price === 0 || (state.unlockedSkins || []).includes(key);
             b.classList.toggle('locked', !unlocked);
-            b.classList.toggle('active', b.dataset.skin === (state.skin || 'gold') && unlocked);
-            b.textContent = settingLabel(b) + (unlocked ? '' : ' 🔒');
+            b.classList.toggle('active', key === (state.skin || 'gold') && unlocked);
+            let label = settingLabel(b) + (unlocked ? '' : ' 🔒');
+            // Показываем уровень прокачки купленного скина
+            if (unlocked && key && key !== 'gold') {
+                const lv = skinLevel(state, key);
+                label += ` L${lv}`;
+            }
+            b.textContent = label;
         });
         if (themePriceHint) {
             const cur = state.theme || 'dark';
@@ -821,6 +1228,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const p = Number(b && b.dataset.price) || 0;
             skinPriceHint.textContent = p > 0 ? `· ${p} 🪙` : '';
         }
+        // Подсветка активного музыкального трека (OST / Выкл)
+        if (musicOptions) musicOptions.querySelectorAll('.music-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.track === (state.musicTrack || 'ost'));
+        });
         if (installBtn) {
             installBtn.hidden = !installBtn.dataset.available;
         }
@@ -840,6 +1251,45 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateDoubloons();
         pushCloudSave();
         showToast(`+${gained} жемчужин${text ? ' — ' + text : ''}`, icon);
+    }
+
+    // ── Способности скинов (уникальные пассивки) ─────────────
+    // Каждая активна только если соответствующий скин прокачан до 3-го уровня.
+    // Реализованы через чистые функции shop.js; здесь — точки применения.
+
+    /** Способность «Коралл» (L3): +1 жемчужина с каждой партии. */
+    function woodAbilityBonus() {
+        return hasSkinAbility(state, 'wood') ? 1 : 0;
+    }
+
+    /** Способность «Кристаллы» (L3): +2 жемчужины за победу над уровнем. */
+    function gemAbilityWinBonus() {
+        return hasSkinAbility(state, 'gem') ? 2 : 0;
+    }
+
+    /** Способность «Айсберг» (L3): +1 бесплатная отмена в день. */
+    function iceAbilityUndoBonus() {
+        return hasSkinAbility(state, 'ice') ? 1 : 0;
+    }
+
+    /** Способность «Вулкан» (L3): первая бомба в партии бесплатно. */
+    function fireAbilityFreeBombUsed() {
+        return hasSkinAbility(state, 'fire') ? 1 : 0;
+    }
+
+    /** Способность «Буря» (L3): +10 очков за каждый ход. */
+    function stormAbilityMoveBonus() {
+        return hasSkinAbility(state, 'storm') ? 10 : 0;
+    }
+
+    /** Способность «Жемчужина глубин» (L3): +1 жемчужина за слияние. */
+    function pearlAbilityMergeBonus() {
+        return hasSkinAbility(state, 'pearl') ? 1 : 0;
+    }
+
+    /** Способность «Кракен» (L3): 1 раз в партию — бомба бесплатно. */
+    function krakenAbilityFreeBombPerGame() {
+        return hasSkinAbility(state, 'kraken') ? 1 : 0;
     }
 
     // ── Облачные сохранения (VK / Yandex) ────────────────────
@@ -979,20 +1429,34 @@ document.addEventListener('DOMContentLoaded', async () => {
             el.className = 'shop-item' + (owned ? ' owned' : '');
             let badge = '';
             let desc = item.desc || '';
+            let extra = '';
             if (item.type === 'boost') {
                 badge = `В запасе: ${boostCount(state, item.key)}`;
             } else if (item.type === 'perk') {
                 if (owned) badge = '✓ Куплен';
             } else if (item.type === 'skin' || item.type === 'theme') {
-                desc = item.desc || `+${item.bonus || 0}% очков за слияния`;
+                const total = currentAppearanceBonus();
                 const active = item.type === 'skin'
                     ? (state.skin || 'gold') === item.key
                     : (state.theme || 'dark') === item.key;
-                if (owned) {
-                    const total = currentAppearanceBonus();
-                    badge = active
-                        ? `✓ Активен · +${item.bonus || 0}% очков${total > (item.bonus || 0) ? ` (всего +${total}%)` : ''}`
-                        : `✓ Открыт · +${item.bonus || 0}% очков`;
+                if (item.type === 'skin' && owned) {
+                    const lv = skinLevel(state, item.key);
+                    desc = `+${skinBonusForLevel(item.bonus, lv)}% очков за слияния (L${lv})`;
+                    badge = active ? '✓ Активен' : '✓ Открыт';
+                    if (active && total > 0) badge += ` · всего +${total}%`;
+                    if (item.ability) {
+                        const on = hasSkinAbility(state, item.key);
+                        extra = `<div class="shop-ability${on ? ' on' : ''}">${item.ability}</div>`;
+                        if (lv < MAX_SKIN_LEVEL) {
+                            const cost = SKIN_UPGRADE_COSTS[lv];
+                            const afford = (state.doubloons || 0) >= cost;
+                            extra += `<button class="btn btn-small shop-upgrade${afford ? '' : ' disabled'}" data-upgrade-key="${item.key}">→ L${lv + 1} · ${cost} 🦪</button>`;
+                        } else {
+                            extra += `<div class="shop-ability on">★ Макс. уровень</div>`;
+                        }
+                    }
+                } else if (item.type === 'theme' && owned) {
+                    badge = active ? `✓ Активен · +${item.bonus || 0}% очков${total > (item.bonus || 0) ? ` (всего +${total}%)` : ''}` : `✓ Открыт · +${item.bonus || 0}% очков`;
                 }
             }
             el.innerHTML = `
@@ -1001,6 +1465,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="shop-name">${item.name}</div>
                     <div class="shop-desc">${desc}</div>
                     ${badge ? `<div class="shop-base">${badge}</div>` : ''}
+                    ${extra}
                 </div>
                 ${owned && item.type !== 'boost'
                     ? '<div class="shop-buy owned">✓</div>'
@@ -1008,9 +1473,50 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
             shopGrid.appendChild(el);
         }
+        // Показываем наборы-синергии в лавке (внизу), чтобы игрок знал о бонусах
+        if (shopCategory === 'skin' || shopCategory === 'theme') {
+            const setsEl = document.createElement('div');
+            setsEl.className = 'shop-sets';
+            setsEl.innerHTML = '<div class="shop-sets-title">Наборы-синергии</div>';
+            for (const s of SETS) {
+                const ownedBoth = ownsSet(state, s);
+                const isActive = activeSet(state) === s;
+                const skinItem = itemByKey('skin', s.skin);
+                const themeItem = itemByKey('theme', s.theme);
+                setsEl.innerHTML += `
+                    <div class="shop-set${isActive ? ' active' : ''}${ownedBoth ? ' owned' : ''}">
+                        <span class="shop-set-icon">${s.icon}</span>
+                        <span class="shop-set-name">${s.name}</span>
+                        <span class="shop-set-parts">${skinItem.icon} ${skinItem.name} + ${themeItem.icon} ${themeItem.name}</span>
+                        <span class="shop-set-bonus">+${s.bonus}%</span>
+                    </div>`;
+            }
+            shopGrid.appendChild(setsEl);
+        }
         shopGrid.querySelectorAll('.shop-buy[data-shop-id]').forEach(btn => {
             btn.addEventListener('click', () => buyFromShop(btn.dataset.shopId));
         });
+        shopGrid.querySelectorAll('.shop-upgrade[data-upgrade-key]').forEach(btn => {
+            btn.addEventListener('click', () => upgradeSkinFromShop(btn.dataset.upgradeKey));
+        });
+    }
+
+    function upgradeSkinFromShop(key) {
+        const res = upgradeSkin(state, key);
+        if (!res.ok) {
+            if (res.reason === 'not_owned') showToast('Сначала купи скин', '🛒');
+            else if (res.reason === 'not_enough') {
+                const lv = skinLevel(state, key);
+                showToast(`Не хватает жемчужин — нужно ${SKIN_UPGRADE_COSTS[lv]}`, '🦪');
+            } else if (res.reason === 'max') showToast('Скин уже максимального уровня', '⭐');
+            return;
+        }
+        saveState(state);
+        updateDoubloons();
+        updateShopBalance();
+        updateBoostBar();
+        renderShop();
+        showToast(`Скин прокачан до L${res.level}!`, '⬆️');
     }
 
     function buyFromShop(id) {
@@ -1063,7 +1569,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function useBoostFromBar(key) {
         if (!game || game.gameOver || game.won || game._busy) return;
-        if (!useBoost(state, key)) {
+        // Скины «Вулкан» и «Кракен» (L3): первая бомба в партии — бесплатно.
+        const freeBomb = key === 'bomb' && !freeBombUsed &&
+            (fireAbilityFreeBombUsed() > 0 || krakenAbilityFreeBombPerGame() > 0);
+        if (!freeBomb && !useBoost(state, key)) {
             showToast('Буста нет — купи в лавке', '🛒');
             return;
         }
@@ -1080,11 +1589,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (!ok) {
             // Возвращаем буст, если применить не удалось
-            state.inventory = state.inventory || {};
-            state.inventory[key] = (state.inventory[key] || 0) + 1;
+            if (!freeBomb) {
+                state.inventory = state.inventory || {};
+                state.inventory[key] = (state.inventory[key] || 0) + 1;
+            }
             showToast('Сейчас нельзя использовать буст', '⚠️');
             updateBoostBar();
             return;
+        }
+        if (freeBomb) {
+            freeBombUsed = true;
+            showToast('Бомба от способности скина!', '💣');
         }
         saveState(state);
         updateBoostBar();
@@ -1139,7 +1654,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const used = exchangeUsedToday(state, todayKey());
             exchangeUsedEl.textContent = `Сегодня: ${used} из ${limit}`;
         }
-        if (exchangeBtn) exchangeBtn.disabled = usedTodayExceeded();
+        // Обмен доступен, когда есть очки и не исчерпан дневной лимит
+        if (exchangeBtn) exchangeBtn.disabled = usedTodayExceeded() || (state.pointsBalance || 0) < 500;
         renderDonate();
     }
 
@@ -1199,6 +1715,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `${pack.priceRub} ₽`;
     }
 
+    // Загружает каталог товаров VK (id из кабинета VK → Платежи) и сопоставляет
+    // с локальными наборами DONATE_PACKS по названию/цене. Возвращает Map
+    // pack.id → реальный id товара VK. Вне VK или при ошибке — пустой Map.
+    async function loadVkCatalog() {
+        if (sdk.host !== 'vk') return new Map();
+        try {
+            const items = await sdk.getDonateCatalog();
+            const map = new Map();
+            for (const it of items) {
+                // Сопоставляем по названию товара (title) с локальным набором.
+                const pack = DONATE_PACKS.find(p => p.name === it.title);
+                if (pack) map.set(pack.id, it.id);
+            }
+            return map;
+        } catch (_) {
+            return new Map();
+        }
+    }
+
     function renderDonate() {
         if (!donateGrid) return;
         donateGrid.innerHTML = '';
@@ -1206,7 +1741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (donateInfo) {
             donateInfo.textContent = canDonate
                 ? (sdk.host === 'vk'
-                    ? 'Покупка жемчужин за голоса VK (после публикации в каталоге)'
+                    ? 'Покупка жемчужин за голоса VK (тестовый режим до публикации в каталоге)'
                     : 'Донат активируется после публикации на платформе')
                 : 'Покупка жемчужин за деньги станет доступна на платформах VK / Яндекс';
         }
@@ -1232,6 +1767,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             donateGrid.appendChild(el);
         }
+        // Асинхронно подгружаем каталог VK, чтобы к моменту клика id были известны.
+        loadVkCatalog().then(map => { vkCatalog = map; });
     }
 
     // ── Донат: реальный платёж платформы ──────────────────────
@@ -1245,7 +1782,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (donateBusy) return;
         donateBusy = true;
         try {
-            const itemId = pack.id; // id товара должен совпадать с товаром в кабинете VK → Платежи
+            // Реальный id товара берём из каталога VK (кабинет VK → Платежи).
+            // Если каталог ещё не загружен — подгружаем сейчас.
+            if (!vkCatalog) vkCatalog = await loadVkCatalog();
+            const itemId = vkCatalog.get(pack.id) || pack.id;
             const res = await sdk.buyDonate(itemId);
             if (res && res.ok) {
                 state.doubloons = (state.doubloons || 0) + pack.pearls;
@@ -1266,17 +1806,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Уведомления (тосты) ──────────────────────────────────
 
-    function showToast(text, icon = '🏆') {
-        if (!toastContainer) return;
-        const t = document.createElement('div');
-        t.className = 'toast';
-        t.innerHTML = `<span class="toast-icon">${icon}</span><span>${text}</span>`;
-        toastContainer.appendChild(t);
-        requestAnimationFrame(() => t.classList.add('show'));
-        setTimeout(() => {
-            t.classList.remove('show');
-            setTimeout(() => t.remove(), 450);
-        }, 3500);
+    function showToast() {
+        // Тосты отключены: плашки перекрывали доску. Обратная связь в игре —
+        // на доске: всплывающий текст «Комбо ×N» (белый шрифт поверх плиток).
     }
 
     // ── Конфетти (победа / праздник) ─────────────────────────
@@ -1360,9 +1892,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 applyAppearance();
                 updateSettingsUI();
                 renderDailyLogin();
+                // Музыка: восстановить трек из импортированного сейва
+                applyMusic();
                 updateBoostBar();
                 refreshAchievements();
-                startLevel(state.currentLevel || 1);
+                // Восстанавливаем и режим игры (Глубины / Классика)
+                gameMode = state.mode === 'classic' ? 'classic' : 'depth';
+                if (modeClassicBtn) modeClassicBtn.classList.toggle('active', gameMode === 'classic');
+                if (modeDepthBtn) modeDepthBtn.classList.toggle('active', gameMode === 'depth');
+                if (gameMode === 'classic') startClassic();
+                else startLevel(resolveStartLevel());
                 showToast('Прогресс загружен из файла', '📂');
             } catch (_) {
                 showToast('Не удалось прочитать файл', '⚠️');
@@ -1390,12 +1929,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (game) game.detachEventListeners();
         if (pauseOverlay) pauseOverlay.classList.remove('visible');
 
+        runKind = 'depth'; // партия глубин: доска сохраняется в saves[levelId]
+        setOstContext(runKind);
         state.currentLevel = levelId;
         lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
         reviveCount = 0;
         reviveBusy = false;
+        freeBombUsed = false;
         challengeActive = false; // обычный уровень — не «Челлендж»
         weeklyActive = false;    // и не «Еженедельный челлендж» 📅
+        tournamentActive = false; // и не «Ежедневный турнир» 🏆
+        duelActive = false;       // и не «Дуэль дня» ⚔️
         // Статистика партии для сюжетной миссии 🎯 — сбрасывается при запуске уровня
         missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         saveState(state);
@@ -1420,27 +1965,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             fourChance:     ownsPerk(state, 'fourChance') ? 0.3 : 0.1,
             onScoreUpdate: (score) => {
                 const prev = lastScore;
-                const isNewBest = score > (state.bestTotal || 0);
                 lastScore = score;
                 // Фаза 1: счёт-вверх (count-up)
                 animateScore(prev, score);
-                if (isNewBest) {
-                    state.bestTotal = score;
-                    saveState(state);
-                    // Пульс рекорда при обновлении
-                    if (bestEl) {
-                        bestEl.classList.remove('best-pulse');
-                        void bestEl.offsetWidth;
-                        bestEl.classList.add('best-pulse');
-                    }
-                }
-                if (game) {
-                    const mt = game.getMaxTile();
-                    if (mt > (state.bestTile || 0)) {
-                        state.bestTile = mt;
-                        saveState(state);
-                    }
-                }
+                updateRunBest(score); // глобальные рекорды (задания/достижения)
                 updateStats();
                 // Сюжетная миссия 🎯: очки за партию для прогресса
                 missionStats.score = Math.max(missionStats.score, score);
@@ -1450,6 +1978,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             },
             onMove:  () => {
                 if (state.sound !== false) playMove();
+                // Скин «Буря» (L3): +10 очков за каждый ход
+                if (stormAbilityMoveBonus() > 0) game.addScore(stormAbilityMoveBonus());
                 state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
                 // Сюжетная миссия 🎯: ходы за партию
                 missionStats.moves = (missionStats.moves || 0) + 1;
@@ -1461,6 +1991,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onTide:  (swept) => {
                 // Прилив смыл нижние ряды: вспышка индикатора + уведомление о возврате очков
                 flashTideSweep();
+                gamePulse('tide');
                 const total = swept.reduce((acc, s) => acc + s.gain, 0);
                 if (total > 0) showToast(`Прилив унёс плитки! +${total} очков`, '🌊');
                 else if (swept.length > 0) showToast('Прилив очистил нижний ряд', '🌊');
@@ -1468,6 +1999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: (swept) => {
                 // «Водоворот» за серию бесполезных ходов: смыв без возврата очков
                 flashThreatSweep();
+                gamePulse('threat');
                 const total = swept.reduce((acc, s) => acc + s.value, 0);
                 if (total > 0) showToast(`Водоворот унёс плитки (−${total})`, '🌪️');
                 else if (swept.length > 0) showToast('Водоворот очистил нижний ряд', '🌪️');
@@ -1475,6 +2007,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onSharkEat: (ev) => {
                 // Акула появилась / шагнула / укусила: вспышка индикатора + уведомление
                 flashShark();
+                gamePulse('shark');
                 if (typeof ev.idx === 'number' && typeof ev.value === 'number') {
                     showToast(`🦈 Акула съела плитку ${ev.value}!`, '🦈');
                 } else if (typeof ev.spawn === 'number') {
@@ -1493,6 +2026,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             },
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
+                // Скин «Жемчужина глубин» (L3): +1 жемчужина за слияние
+                if (pearlAbilityMergeBonus() > 0) addDoubloons(pearlAbilityMergeBonus() * (n || 1), 'слияние (Жемчужина)');
                 state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
                 // Серии и комбо: бонус за множественные слияния в ходе и ходы подряд
                 const reward = comboReward({ merges: n, streak: game.streak });
@@ -1503,24 +2038,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (reward.doubloons > 0) {
                     addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
                 }
+                gamePulse('merge');
                 // Сюжетная миссия 🎯: слияния, лучший комбо и лучшая серия за партию
                 missionStats.merges = (missionStats.merges || 0) + (n || 1);
                 missionStats.bestCombo = Math.max(missionStats.bestCombo, n || 0);
                 missionStats.bestStreak = Math.max(missionStats.bestStreak, game.streak || 0);
                 renderMission();
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateSharkIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); },
-            onTarget: (score) => {
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateSharkIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); syncAtmosphereToGame(); },
+            onTarget: (_score) => {
                 // Бесконечный режим: цель достигнута — празднуем и продолжаем
                 if (state.sound !== false) playWin();
                 spawnConfetti(90, true);
-                showToast(`Цель достигнута! Очки: ${score.toLocaleString('ru')}`, '🎉');
             },
             onWin: (score) => {
                 const isNewBest = !state.bestScores[state.currentLevel] || score > state.bestScores[state.currentLevel];
                 state = applyLevelWin(state, score);
                 // Жемчужины за победу
                 addDoubloons(100, 'победа');
+                // Способности скинов: «Кристаллы» (+2 за победу), «Коралл» (+1 за партию)
+                if (gemAbilityWinBonus() > 0) addDoubloons(gemAbilityWinBonus(), 'победа (Кристаллы)');
+                if (woodAbilityBonus() > 0) addDoubloons(woodAbilityBonus(), 'партия (Коралл)');
                 if (isNewBest) addDoubloons(200, 'новый рекорд уровня', '🏆');
                 state.dailyCounters.wins = (state.dailyCounters.wins || 0) + 1;
                 saveState(state);
@@ -1532,6 +2070,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // на клиенте после партии показываем системную таблицу с результатом.
                 if (sdk.host === 'vk') sdk.showLeaderboard(score, state.currentLevel);
                 if (state.sound !== false) playWin();
+                gamePulse('win');
                 const isLast = isLastLevel(state.currentLevel);
                 spawnConfetti(isLast ? 140 : 80, true);
                 showWinModal(score, isLast);
@@ -1549,6 +2088,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // VK: системная таблица после партии (смотри, кого обошёл / кто впереди).
                 if (sdk.host === 'vk') sdk.showLeaderboard(score, state.currentLevel);
                 if (state.sound !== false) playGameOver();
+                gamePulse('gameover');
                 showGameOverModal(score);
                 // Реклама при проигрыше (interstitial) с кулдауном 4 минуты
                 const now = Date.now();
@@ -1582,14 +2122,193 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateBoostBar();
         // П. 1.19.3: запуск уровня — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+        // Индикаторы выше могли изменить размер main → доска изменилась →
+        // плитки позиционируются заново по актуальному clientWidth.
+        fitBoard();
+    }
+
+    // ── Режим «Классика»: чистый 2048 без уровней, приливов и ходов ──
+    // 4×4, цель 2048, бесконечный режим (после цели игра продолжается),
+    // отдельный рекорд classicBest, сохранение — под ключ 'classic'.
+    function startClassic() {
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+
+        runKind = 'classic'; // классика: отдельный слот сохранения 'classic'
+        setOstContext(runKind);
+        lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
+        reviveCount = 0;
+        reviveBusy = false;
+        freeBombUsed = false;
+        challengeActive = false;
+        weeklyActive = false;
+        tournamentActive = false;
+        duelActive = false;
+        missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
+        saveState(state);
+        updateHeader();
+        renderMission();
+
+        game = new Game({
+            boardElement:  boardEl,
+            size:          4,
+            target:        2048,
+            infinity:      true,
+            tide:          null,      // без прилива 🌊
+            moves:         null,      // без «ходов как ресурс» 🧮
+            shark:         null,      // без акулы 🦈
+            abilities:     null,      // без плиток-способностей ⚡
+            appearanceMultiplier: 1,  // без бонуса косметики за очки
+            fourChance:    0.1,
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                renderMission();
+                // Глобальные рекорды: классика — полноценный режим 2048, задания
+                // «Собери плитку 256/512» и «5000 очков за партию» должны двигаться.
+                updateRunBest(score);
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove: () => {
+                if (state.sound !== false) playMove();
+                updateMoves();
+                renderMission();
+            },
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                missionStats.merges = (missionStats.merges || 0) + (n || 1);
+                missionStats.bestCombo = Math.max(missionStats.bestCombo, n || 0);
+                missionStats.bestStreak = Math.max(missionStats.bestStreak, game.streak || 0);
+                renderMission();
+            },
+            onSave: () => { saveClassicBoard(); saveState(state); updateUndoState(); updateMoves(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); syncAtmosphereToGame(); },
+            onTarget: (_score) => {
+                // Бесконечный режим: цель 2048 достигнута — празднуем и продолжаем
+                if (state.sound !== false) playWin();
+                gamePulse('win');
+                spawnConfetti(90, true);
+            },
+            onWin: (_score) => {
+                // В классике нет «следующего уровня» — празднуем и продолжаем играть
+                if (state.sound !== false) playWin();
+                gamePulse('win');
+                spawnConfetti(90, true);
+                showToast('Ты собрал 2048! Играй дальше', '🏆');
+            },
+            onGameOver: (score) => {
+                // Отдельный рекорд классики
+                if (score > (state.classicBest || 0)) {
+                    state.classicBest = score;
+                    saveState(state);
+                }
+                // Глобальные рекорды тоже растут в классике (задания/достижения)
+                updateRunBest(score);
+                checkAchievements();
+                checkDaily();
+                pushCloudSave();
+                if (sdk.isPlatform()) sdk.submitScore(score, 0);
+                if (state.sound !== false) playGameOver();
+                gamePulse('gameover');
+                showClassicGameOverModal(score);
+            },
+        });
+
+        // Восстановление сохранённой классики (если была)
+        const saved = loadSaves().classic;
+        if (saved && saved.board && saved.board.tiles) {
+            game.loadState(saved.board);
+            lastScore = game.score;
+        } else {
+            state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+            saveState(state);
+            updateStats();
+        }
+        updateUndoState();
+        updateMoves();
+        updateBoostBar();
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+        fitBoard();
+    }
+
+    function saveClassicBoard() {
+        if (!game) return;
+        const saves = loadSaves();
+        saves.classic = { board: game.getState(), ts: Date.now() };
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(saves)); } catch (_) {}
+    }
+
+    function clearClassicBoard() {
+        const saves = loadSaves();
+        delete saves.classic;
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(saves)); } catch (_) {}
+    }
+
+    function showClassicGameOverModal(score) {
+        // Очки партии → в баланс обмена (Сокровищница); повторные завершения не дублируются
+        const pts = creditGamePointsForRun(score);
+        if (pts > 0) showToast(`+${pts.toLocaleString('ru')} очков — можно обменять на жемчужины`, '🏅');
+        modalIcon.textContent    = '💀';
+        modalTitle.textContent   = 'Игра окончена';
+        modalMessage.textContent = 'Нет доступных ходов. Попробуй ещё!';
+        modalScore.textContent   = score.toLocaleString('ru');
+
+        clearModalActions();
+        addModalBtn('🔄 Попробовать снова', 'btn-primary', () => {
+            hideModal(gameModal);
+            clearClassicBoard();
+            startClassic();
+        });
+        addModalBtn('📣 Поделиться', 'btn-ghost', () => shareResult(score));
+        if (sdk.host === 'vk') {
+            addModalBtn('🏆 Таблица', 'btn-ghost', () => sdk.showLeaderboard(score, 0));
+        }
+        showModal(gameModal);
     }
 
     function resetCurrentGame() {
         if (!game) return;
+        // Сбрасываем active-флаги: start* защищены guard'ами («уже идёт партия»),
+        // а при перезапуске мы сознательно начинаем новую партию.
+        challengeActive = false;
+        weeklyActive = false;
+        tournamentActive = false;
+        duelActive = false;
+        // «Заново» перезапускает ТЕКУЩИЙ режим. В спец-режимах (головоломка,
+        // турнир, дуэль, челлендж, недельный) нельзя просто сделать game.init():
+        // их стартовая доска детерминированная (общий сид дня) и задаётся через
+        // start*, поэтому перезапускаем через ту же точку входа.
+        switch (runKind) {
+            case 'classic':
+                clearClassicBoard();
+                startClassic();
+                return;
+            case 'puzzle':
+                startDailyPuzzle();
+                return;
+            case 'tournament':
+                startTournament();
+                return;
+            case 'duel':
+                startDuel();
+                return;
+            case 'challenge':
+                startChallenge(state.currentLevel || 1);
+                return;
+            case 'weekly':
+                startWeekly();
+                return;
+        }
+        // Партия глубин (runKind === 'depth'): обычный сброс на том же уровне
         clearBoardSave(state.currentLevel);
         lastScore = 0;
+        beginRun(); // перезапуск — новый счёт зачтённых очков партии
         reviveCount = 0;
         reviveBusy = false;
+        freeBombUsed = false;
         // Новая партия на том же уровне — статистика сюжетной миссии сбрасывается
         missionStats = { maxTile: 0, merges: 0, moves: 0, score: 0, bestCombo: 0, bestStreak: 0 };
         game.init();
@@ -1628,6 +2347,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function showWinModal(score, isLast) {
+        // Очки партии → в баланс обмена (Сокровищница); повторные завершения не дублируются
+        const pts = creditGamePointsForRun(score);
+        if (pts > 0) showToast(`+${pts.toLocaleString('ru')} очков — можно обменять на жемчужины`, '🏅');
         modalIcon.textContent    = isLast ? '👑' : '🎉';
         modalTitle.textContent   = isLast ? 'Ты — Хозяин Моря!' : 'Уровень пройден!';
         modalMessage.textContent = isLast
@@ -1637,7 +2359,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         clearModalActions();
 
-        if (!isLast) {
+        if (runKind !== 'depth') {
+            // Спец-режим (головоломка/челлендж/недельный): «Следующий уровень»
+            // здесь недействителен — currentLevel может быть 0 (головоломка) или
+            // levelId режима. Вместо этого возвращаем на карту уровней.
+            addModalBtn('🗺️ Карта глубин', 'btn-primary', () => {
+                hideModal(gameModal);
+                openLevelModal();
+            });
+        } else if (!isLast) {
             addModalBtn('🐬 Следующий уровень', 'btn-primary', () => {
                 hideModal(gameModal);
                 startLevel(state.currentLevel + 1);
@@ -1650,12 +2380,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
-        addModalBtn('▶ Продолжить игру', 'btn-secondary', () => {
-            hideModal(gameModal);
-            game.won = false;
-            // П. 1.19.3: партия продолжается — геймплей возобновляется.
-            markGameplayStart();
-        });
+        if (runKind === 'depth' || runKind === 'classic') {
+            // «Продолжить игру» имеет смысл только в бесконечных партиях
+            // (глубины с infinity / классика). В спец-режимах (головоломка,
+            // турнир, дуэль, челлендж, недельный) партия конечна — после
+            // победы играть дальше нечего (лимит ходов/цель достигнута).
+            addModalBtn('▶ Продолжить игру', 'btn-secondary', () => {
+                hideModal(gameModal);
+                game.won = false;
+                // П. 1.19.3: партия продолжается — геймплей возобновляется.
+                markGameplayStart();
+            });
+        }
 
         addModalBtn('🔄 Заново', 'btn-ghost', () => {
             hideModal(gameModal);
@@ -1678,6 +2414,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function showGameOverModal(score) {
+        // Очки партии → в баланс обмена (Сокровищница); повторные завершения не дублируются
+        const pts = creditGamePointsForRun(score);
+        if (pts > 0) showToast(`+${pts.toLocaleString('ru')} очков — можно обменять на жемчужины`, '🏅');
         modalIcon.textContent    = '💀';
         modalTitle.textContent   = 'Игра окончена';
         modalMessage.textContent = 'Нет доступных ходов. Попробуй ещё!';
@@ -1853,6 +2592,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         buildLevelsGrid();
         renderDepthsMap();
         renderDailyPuzzle();
+        renderTournament();
+        renderDuel();
         renderChallenge();
         renderWeekly();
         showModal(levelModal);
@@ -1885,12 +2626,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveState(state);
 
         const info = puzzleInfo(state);
+        runKind = 'puzzle'; // доска дня детерминированная — НЕ сохраняем в saves
+        setOstContext(runKind);
         state.currentLevel = 0; // маркер «ежедневная головоломка» (не уровень)
         lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
         reviveCount = 0;
         reviveBusy = false;
+        freeBombUsed = false;
         challengeActive = false; // головоломка — не «Челлендж»
         weeklyActive = false;    // и не «Еженедельный челлендж» 📅
+        tournamentActive = false; // и не «Ежедневный турнир» 🏆
+        duelActive = false;       // и не «Дуэль дня» ⚔️
         saveState(state);
         updateHeader();
         // В ежедневной головоломке сюжетной миссии нет — скрываем прогресс-бар
@@ -1917,10 +2664,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 lastScore = score;
                 animateScore(prev, score);
                 updateStats();
+                updateRunBest(score); // 512 в головоломке — тоже глобальная плитка
                 if (platform.isNative && score > prev) hapticLight();
             },
             onMove:  () => {
                 if (state.sound !== false) playMove();
+                if (stormAbilityMoveBonus() > 0) game.addScore(stormAbilityMoveBonus());
                 state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
             },
             onTide:  null,
@@ -1929,6 +2678,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             onAbility: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                if (pearlAbilityMergeBonus() > 0) addDoubloons(pearlAbilityMergeBonus() * (n || 1), 'слияние (Жемчужина)');
                 state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
                 const reward = comboReward({ merges: n, streak: game.streak });
                 if (reward.score > 0) {
@@ -1939,11 +2690,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
                 }
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); syncAtmosphereToGame(); },
             onTarget: () => {},
             onWin: (score) => {
-                const isNewBest = recordPuzzleResult(state, { score, maxTile: game.getMaxTile() });
-                if (isNewBest) {
+                // Награда — ОДИН раз за прохождение дня, а не за каждый новый
+                // рекорд: доска дня детерминированная, иначе реплеи фармили бы +150 🦪.
+                const wasCompleted = puzzleInfo(state).completed;
+                recordPuzzleResult(state, { score, maxTile: game.getMaxTile() });
+                const completed = puzzleInfo(state).completed;
+                if (completed && !wasCompleted) {
                     addDoubloons(info.reward, 'ежедневная головоломка', '🧩');
                     state.dailyCounters.wins = (state.dailyCounters.wins || 0) + 1;
                 }
@@ -1952,23 +2707,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playWin();
+                gamePulse('win');
                 spawnConfetti(90, true);
-                const completed = puzzleInfo(state).completed;
                 showWinModal(score, false);
                 // Переопределим заголовок модалки под головоломку
                 modalIcon.textContent  = completed ? '🧩' : '🎉';
                 modalTitle.textContent = completed ? 'Головоломка пройдена!' : 'Плитка собрана!';
                 modalMessage.textContent = completed
-                    ? `Собери ${info.target.toLocaleString('ru')} — цель дня достигнута! +${info.reward} жемчужин.`
+                    // Первое прохождение дня: награда ещё не получена
+                    ? (wasCompleted
+                        ? `Собери ${info.target.toLocaleString('ru')} — цель дня достигнута! Награда уже получена ранее.`
+                        : `Собери ${info.target.toLocaleString('ru')} — цель дня достигнута! +${info.reward} жемчужин.`)
                     : `Ты собрал ${info.target.toLocaleString('ru')}! Приходи завтра за новой доской.`;
             },
             onGameOver: (score) => {
                 recordPuzzleResult(state, { score, maxTile: game.getMaxTile() });
+                updateRunBest(score); // финальный счёт тоже рекорд (если нет onScore)
                 saveState(state);
                 checkAchievements();
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playGameOver();
+                gamePulse('gameover');
                 showGameOverModal(score);
             },
         });
@@ -1992,6 +2752,347 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateBoostBar();
         // П. 1.19.3: запуск головоломки — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+    }
+
+    // ── Ежедневный турнир глубин 🏆 (онлайн) ────────────────
+    /** Отобразить блок «Турнир глубин» на карте уровней: призы и статус дня. */
+    function renderTournament() {
+        if (!tournamentBlock) return;
+        const info = tournamentInfo(state);
+        if (tournamentDate)   tournamentDate.textContent = info.date;
+        if (tournamentMoves)  tournamentMoves.textContent = String(info.moves);
+        if (tournamentBest)   tournamentBest.textContent = (info.best || 0).toLocaleString('ru');
+        if (tournamentDesc) {
+            tournamentDesc.textContent = info.completedToday
+                ? `Сыграно! Лучший результат дня: ${(info.best || 0).toLocaleString('ru')}. Новая доска — завтра.`
+                : `Одна и та же доска у всех игроков сегодня. ${info.moves} ходов на максимум очков — результат уходит в рейтинг!`;
+        }
+        if (tournamentRewards) {
+            tournamentRewards.innerHTML = info.rewards.map((r) => {
+                const reached = (info.best || 0) >= r.threshold;
+                const claimed = reached; // порог учтён, если результат его достиг
+                return `<span class="tournament-reward${claimed ? ' claimed' : ''}">${r.threshold.toLocaleString('ru')}+ 🦪 ${r.reward}</span>`;
+            }).join('');
+        }
+        if (tournamentPlay) {
+            tournamentPlay.textContent = info.completedToday ? '🌊 Сыграть снова' : '🌊 Участвовать';
+        }
+    }
+
+    /** Запустить турнирную партию: детерминированная доска дня, 50 ходов на максимум очков. */
+    function startTournament() {
+        if (tournamentActive) return; // турнирная партия уже идёт — не запускаем повторно
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        hideModal(levelModal);
+
+        ensureTournament(state);
+        saveState(state);
+
+        const info = tournamentInfo(state);
+        runKind = 'tournament'; // детерминированная доска дня — НЕ сохраняем
+        setOstContext(runKind);
+        state.currentLevel = 0; // маркер «турнир» (не уровень)
+        lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
+        reviveCount = 0;
+        reviveBusy = false;
+        freeBombUsed = false;
+        challengeActive = false;
+        weeklyActive = false;
+        tournamentActive = true;
+        duelActive = false; // и не «Дуэль дня» ⚔️
+        saveState(state);
+        updateHeader();
+        renderMission();
+        updateChallengeIndicator();
+
+        const startTiles = tournamentStartBoard();
+        game = new Game({
+            boardElement:  boardEl,
+            size:          info.size,
+            target:        info.target,
+            infinity:      false,
+            tide:          null, // в турнире — чистый 2048, без прилива
+            moves:         null, // и без «водоворота» (честное соревнование)
+            shark:         null, // без акулы
+            abilities:     null, // и без плиток-способностей
+            appearanceMultiplier: 1, // бонусы скина/темы НЕ влияют на рейтинг (честно)
+            fourChance:    0.1,
+            moveLimit:     TOURNAMENT_MOVES, // 50 ходов — фиксированная партия
+            random:        makeRng(tournamentSeed()), // общий сид дня у всех игроков
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                updateRunBest(score);
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove:  () => {
+                if (state.sound !== false) playMove();
+                state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+            },
+            onTide:  null,
+            onThreat: null,
+            onSharkEat: null,
+            onAbility: null,
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
+                const reward = comboReward({ merges: n, streak: game.streak });
+                if (reward.score > 0) {
+                    game.addScore(reward.score);
+                    showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
+                }
+                if (reward.doubloons > 0) {
+                    addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
+                }
+            },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); syncAtmosphereToGame(); },
+            onTarget: () => {}, // цель 2048 недостижима за 50 ходов — формально
+            onWin: (score) => {
+                gamePulse('win');
+                finishTournamentRun(score);
+            },
+            onGameOver: (score) => {
+                gamePulse('gameover');
+                finishTournamentRun(score);
+            },
+        });
+
+        // Устанавливаем детерминированную стартовую доску дня
+        game.tiles = startTiles.map((t) => {
+            if (!t) return null;
+            return { id: game._nextTileId++, value: t.value, justSpawned: true };
+        });
+        game._updateGridCSS();
+        game.render();
+
+        state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+        saveState(state);
+        updateStats();
+        updateUndoState();
+        updateMoves();
+        updateTideIndicator();
+        updateThreatIndicator();
+        updateSharkIndicator();
+        updateBoostBar();
+        // П. 1.19.3: запуск турнира — начало игрового процесса.
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+    }
+
+    /** Завершить турнирную партию: записать результат, выдать пороговые награды, отправить в рейтинг. */
+    async function finishTournamentRun(score) {
+        tournamentActive = false;
+        const res = recordTournamentResult(state, { score });
+        saveState(state);
+        // Пороговые награды — только те, что достигнуты этой партией
+        for (const r of res.newRewards) {
+            addDoubloons(r.reward, `турнир: ${r.threshold.toLocaleString('ru')}+ очков`, '🏆');
+        }
+        // Результат дня уходит в платформенный лидерборд (Яндекс setScore / VK системная таблица)
+        if (sdk.isPlatform() && score > 0) {
+            sdk.submitScore(score);
+        }
+        if (res.isNewBest) {
+            showToast(`Турнир: новый рекорд дня — ${score.toLocaleString('ru')}!`, '🏆');
+        }
+        updateRunBest(score);
+        checkAchievements();
+        checkDaily();
+        pushCloudSave();
+        if (state.sound !== false) playGameOver();
+        showGameOverModal(score);
+    }
+
+    // ── Дуэль дня ⚔️ (асинхронная, общий сид) ────────────────
+    // Вирусная механика: вызови друга на ту же доску дня (50 ходов на максимум
+    // очков). Счёт соперника приходит через vk_request_key, победитель определяется
+    // сравнением очков локально — без серверного бэкенда.
+
+    /** Отобразить блок «Дуэль дня» на карте уровней: статус, счёт соперника, награды. */
+    function renderDuel() {
+        if (!duelBlock) return;
+        const info = duelInfo(state);
+        if (duelDate) duelDate.textContent = info.date;
+        if (duelMoves) duelMoves.textContent = String(info.moves);
+
+        const bestText = (info.best || 0).toLocaleString('ru');
+        if (duelBest) duelBest.textContent = bestText;
+
+        // Строка со счётом соперника: входящий вызов / сыграно / тренировка
+        if (duelOpp) {
+            if (info.pendingScore > 0) {
+                duelOpp.hidden = false;
+                duelOpp.textContent = `⚔️ Соперник: ${info.pendingScore.toLocaleString('ru')} — победи его!`;
+            } else if (info.completedToday) {
+                duelOpp.hidden = false;
+                duelOpp.textContent = `Твой результат: ${bestText}. Победы сегодня: ${info.wins}`;
+            } else {
+                duelOpp.hidden = true;
+            }
+        }
+
+        if (duelStats) {
+            const winClaimed = info.claimedWin ? '✓' : `+${DUEL_WIN_REWARD}`;
+            const loseClaimed = info.claimedLose ? '✓' : `+${DUEL_LOSE_REWARD}`;
+            duelStats.innerHTML = `
+                <span class="duel-stat">Победа: <strong>${winClaimed} 🦪</strong></span>
+                <span class="duel-stat">Участие: <strong>${loseClaimed} 🦪</strong></span>
+            `;
+        }
+
+        if (duelDesc) {
+            duelDesc.textContent = info.completedToday
+                ? `Сыграно! Лучший результат дня: ${bestText}. Новая доска — завтра.`
+                : (info.pendingScore > 0
+                    ? 'Друг бросил тебе вызов! Сыграй ту же доску и сравни очки. Победа — жемчужины!'
+                    : 'Та же доска дня у всех. Вызови друга или прими вызов — победитель получает жемчужины!');
+        }
+        if (duelPlay) {
+            duelPlay.textContent = info.completedToday ? '🌊 Сыграть снова' : '🌊 Играть';
+        }
+        if (duelChallengeBtn) {
+            duelChallengeBtn.hidden = !info.completedToday; // вызов открыт после результата дня
+        }
+    }
+
+    /** Запустить дуэльную партию: детерминированная доска дня, 50 ходов на максимум очков. */
+    function startDuel() {
+        if (duelActive) return; // дуэльная партия уже идёт — не запускаем повторно
+        if (game) game.detachEventListeners();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        hideModal(levelModal);
+
+        ensureDuel(state);
+        saveState(state);
+
+        const info = duelInfo(state);
+        // Счёт соперника фиксируем ДО очистки — он пригодится при подведении итога
+        const opponentScore = info.pendingScore;
+        clearDuelPending(state); // входящий вызов «съеден» — партия началась
+
+        state.currentLevel = 0; // маркер «дуэль» (не уровень)
+        lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
+        reviveCount = 0;
+        runKind = 'duel'; // детерминированная доска дня — НЕ сохраняем
+        setOstContext(runKind);
+        reviveBusy = false;
+        freeBombUsed = false;
+        challengeActive = false;
+        weeklyActive = false;
+        tournamentActive = false;
+        duelActive = true;
+        saveState(state);
+        updateHeader();
+        renderMission();
+        updateChallengeIndicator();
+
+        const startTiles = duelStartBoard();
+        game = new Game({
+            boardElement:  boardEl,
+            size:          info.size,
+            target:        info.target,
+            infinity:      false,
+            tide:          null, // в дуэли — чистый 2048, без прилива
+            moves:         null, // и без «водоворота» (честное соревнование)
+            shark:         null, // без акулы
+            abilities:     null, // и без плиток-способностей
+            appearanceMultiplier: 1, // бонусы скина/темы НЕ влияют на результат (честно)
+            fourChance:    0.1,
+            moveLimit:     DUEL_MOVES, // 50 ходов — фиксированная партия
+            random:        makeRng(duelSeed()), // общий сид дня у всех игроков
+            onScoreUpdate: (score) => {
+                const prev = lastScore;
+                lastScore = score;
+                animateScore(prev, score);
+                updateStats();
+                updateRunBest(score);
+                if (platform.isNative && score > prev) hapticLight();
+            },
+            onMove:  () => {
+                if (state.sound !== false) playMove();
+                state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
+            },
+            onTide:  null,
+            onThreat: null,
+            onSharkEat: null,
+            onAbility: null,
+            onMerge: (n) => {
+                if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
+                const reward = comboReward({ merges: n, streak: game.streak });
+                if (reward.score > 0) {
+                    game.addScore(reward.score);
+                    showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
+                }
+                if (reward.doubloons > 0) {
+                    addDoubloons(reward.doubloons, reward.mult > 1 ? `комбо ×${reward.mult}` : 'серия');
+                }
+            },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); syncAtmosphereToGame(); },
+            onTarget: () => {}, // цель 2048 недостижима за 50 ходов — формально
+            onWin: (score) => {
+                gamePulse('win');
+                finishDuelRun(score, opponentScore);
+            },
+            onGameOver: (score) => {
+                gamePulse('gameover');
+                finishDuelRun(score, opponentScore);
+            },
+        });
+
+        // Устанавливаем детерминированную стартовую доску дня
+        game.tiles = startTiles.map((t) => {
+            if (!t) return null;
+            return { id: game._nextTileId++, value: t.value, justSpawned: true };
+        });
+        game._updateGridCSS();
+        game.render();
+
+        state.gamesPlayed = (state.gamesPlayed || 0) + 1;
+        saveState(state);
+        updateStats();
+        updateUndoState();
+        updateMoves();
+        updateTideIndicator();
+        updateThreatIndicator();
+        updateSharkIndicator();
+        updateBoostBar();
+        // П. 1.19.3: запуск дуэли — начало игрового процесса.
+        if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
+    }
+
+    /** Завершить дуэльную партию: определить победителя против счёта соперника, выдать награду. */
+    async function finishDuelRun(score, opponentScore) {
+        duelActive = false;
+        const res = recordDuelResult(state, { score, opponentScore });
+        saveState(state);
+        if (res.reward > 0) {
+            addDoubloons(res.reward, res.won ? 'победа в дуэли' : 'участие в дуэли', res.won ? '⚔️' : '🤝');
+        }
+        if (opponentScore > 0) {
+            if (res.won) {
+                showToast(`Дуэль: ты победил — ${score.toLocaleString('ru')} против ${opponentScore.toLocaleString('ru')}!`, '⚔️');
+                if (res.reward > 0) spawnConfetti(60, true);
+            } else if (res.draw) {
+                showToast(`Дуэль: ничья — ${score.toLocaleString('ru')} против ${opponentScore.toLocaleString('ru')}`, '🤝');
+            } else {
+                showToast(`Дуэль: соперник сильнее — ${opponentScore.toLocaleString('ru')} против ${score.toLocaleString('ru')}`, '💪');
+            }
+        } else if (res.isNewBest) {
+            showToast(`Новый рекорд дуэли — ${score.toLocaleString('ru')}!`, '⚔️');
+        }
+        updateRunBest(score);
+        checkAchievements();
+        checkDaily();
+        pushCloudSave();
+        if (state.sound !== false) playGameOver();
+        showGameOverModal(score);
     }
 
     // ── Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель» ─────
@@ -2071,11 +3172,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const lv = levelById(challenge.levelId);
         ensureChallenges(state);
+        runKind = 'challenge'; // лимит ходов и своя цель — НЕ сохраняем доску
+        setOstContext(runKind);
         state.currentLevel = challenge.levelId; // челлендж использует уровень как контекст
         lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
         reviveCount = 0;
         reviveBusy = false;
+        freeBombUsed = false;
         challengeActive = true;
+        weeklyActive = false;
+        tournamentActive = false; // турнирная партия — не «Челлендж»
+        duelActive = false;       // и не «Дуэль дня» ⚔️
         saveState(state);
         updateHeader();
         renderMission();
@@ -2098,10 +3206,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 lastScore = score;
                 animateScore(prev, score);
                 updateStats();
+                updateRunBest(score);
                 if (platform.isNative && score > prev) hapticLight();
             },
             onMove:  () => {
                 if (state.sound !== false) playMove();
+                if (stormAbilityMoveBonus() > 0) game.addScore(stormAbilityMoveBonus());
                 state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
                 updateChallengeIndicator();
             },
@@ -2111,6 +3221,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             onAbility: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                if (pearlAbilityMergeBonus() > 0) addDoubloons(pearlAbilityMergeBonus() * (n || 1), 'слияние (Жемчужина)');
                 state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
                 const reward = comboReward({ merges: n, streak: game.streak });
                 if (reward.score > 0) {
@@ -2118,7 +3230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
                 }
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); syncAtmosphereToGame(); },
             onTarget: () => {},
             onWin: (score) => {
                 const res = recordChallengeResult(state, challenge.levelId, {
@@ -2135,6 +3247,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playWin();
+                gamePulse('win');
                 spawnConfetti(90, true);
                 showWinModal(score, false);
                 // Переопределим заголовок модалки под челлендж
@@ -2155,6 +3268,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playGameOver();
+                gamePulse('gameover');
                 showGameOverModal(score);
                 // Переопределим текст: челлендж закончился из-за лимита ходов или тупика
                 modalIcon.textContent  = '⏱️';
@@ -2219,12 +3333,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const lv = levelById(info.levelId);
         ensureWeekly(state);
+        runKind = 'weekly'; // лимит ходов и своя цель — НЕ сохраняем доску
+        setOstContext(runKind);
         state.currentLevel = info.levelId; // недельный челлендж использует уровень как контекст
         lastScore = 0;
+        beginRun(); // новая партия — сброс счётчика зачтённых очков обмена
         reviveCount = 0;
         reviveBusy = false;
+        freeBombUsed = false;
         challengeActive = false; // недельный челлендж — не обычный «Челлендж» уровня
         weeklyActive = true;
+        tournamentActive = false; // и не «Ежедневный турнир» 🏆
+        duelActive = false;       // и не «Дуэль дня» ⚔️
         saveState(state);
         updateHeader();
         renderMission();
@@ -2247,10 +3367,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 lastScore = score;
                 animateScore(prev, score);
                 updateStats();
+                updateRunBest(score);
                 if (platform.isNative && score > prev) hapticLight();
             },
             onMove:  () => {
                 if (state.sound !== false) playMove();
+                if (stormAbilityMoveBonus() > 0) game.addScore(stormAbilityMoveBonus());
                 state.dailyCounters.moves = (state.dailyCounters.moves || 0) + 1;
                 updateChallengeIndicator();
             },
@@ -2260,6 +3382,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             onAbility: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
+                gamePulse('merge');
+                if (pearlAbilityMergeBonus() > 0) addDoubloons(pearlAbilityMergeBonus() * (n || 1), 'слияние (Жемчужина)');
                 state.dailyCounters.merges = (state.dailyCounters.merges || 0) + (n || 1);
                 const reward = comboReward({ merges: n, streak: game.streak });
                 if (reward.score > 0) {
@@ -2267,7 +3391,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     showToast(`Комбо ×${reward.mult}! +${reward.score} очков`, '⚡');
                 }
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateChallengeIndicator(); syncAtmosphereToGame(); },
             onTarget: () => {},
             onWin: (score) => {
                 const res = recordWeeklyResult(state, {
@@ -2288,6 +3412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playWin();
+                gamePulse('win');
                 spawnConfetti(90, true);
                 showWinModal(score, false);
                 // Переопределим заголовок модалки под недельный челлендж
@@ -2308,6 +3433,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 checkDaily();
                 pushCloudSave();
                 if (state.sound !== false) playGameOver();
+                gamePulse('gameover');
                 showGameOverModal(score);
                 // Переопределим текст: недельный челлендж закончился
                 modalIcon.textContent  = '📅';
@@ -2419,6 +3545,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveState(state);
         applyAppearance();
         updateSettingsUI();
+        // Осенние листья: показываем на теме «Осень» и в осенний сезон,
+        // скрываем на остальных темах вне сезона.
+        if (shouldShowAutumn(theme)) startAutumn();
+        else stopAutumn();
+        // Музыка при смене темы НЕ меняется: саундтрек один на всю игру
+        // (OST не привязан к теме — это готовые треки, а не процедурные темы).
+    });
+
+    // ── Фоновая музыка: оригинальный саундтрек ─────────────────
+    // Единственный трек — OST (js/ost.js): 2 MP3 Kevin MacLeod,
+    // контекст main/versus выбирается по runKind через setOstContext.
+    // (Процедурные «темы» удалены — см. git-историю js/music.js.)
+    function applyMusic() {
+        if (state.music === false) { stopMusic(); return; }
+        playTrack('ost'); // любые легаси-ключи процедурных тем нормализуются в 'ost'
+        // Сообщаем OST текущий игровой контекст (runKind), чтобы при старте
+        // играл правильный трек (versus в турнире/дуэли).
+        setOstContext(runKind);
+    }
+    if (musicOptions) musicOptions.addEventListener('click', (e) => {
+        const btn = e.target.closest('.music-btn');
+        if (!btn) return;
+        const track = btn.dataset.track; // 'ost' | 'off'
+        state.musicTrack = track;
+        state.musicManual = track !== 'off';
+        saveState(state);
+        updateSettingsUI();
+        // Первый жест пользователя — можно стартовать воспроизведение.
+        if (track === 'off') { stopMusic(); showToast('Музыка выключена', '🔇'); }
+        else { playTrack(track); setOstContext(runKind); showToast('Музыка: ' + (track === 'ost' ? 'Оригинальный саундтрек' : track), '🎵'); }
+    });
+    if (settingsMusic) settingsMusic.addEventListener('change', () => {
+        state.music = settingsMusic.checked;
+        saveState(state);
+        updateSettingsUI();
+        applyMusic();
+        if (state.music) showToast('Музыка включена', '🎵');
+        else showToast('Музыка выключена', '🔇');
     });
 
     // Скин плиток
@@ -2542,7 +3706,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // (защита от «прочитывания» партии бесконечными отменами)
             ensureDaily();
             const used = state.dailyCounters.undos || 0;
-            const undoLimit = effectiveUndoLimit(state, WEB_UNDO_LIMIT);
+            // Скин «Айсберг» (L3): +1 бесплатная отмена в день
+            const undoLimit = effectiveUndoLimit(state, WEB_UNDO_LIMIT) + iceAbilityUndoBonus();
             if (used >= undoLimit) {
                 if ((state.doubloons || 0) < UNDO_COST) {
                     showToast(`Лимит бесплатных отмен: ${undoLimit}/день. Дальше — ${UNDO_COST} 🪙`, '⚠️');
@@ -2570,6 +3735,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // Ежедневная головоломка 🧩 — кнопка в карте уровней
     if (dpPlay) dpPlay.addEventListener('click', startDailyPuzzle);
+
+    // Ежедневный турнир глубин 🏆 — кнопка в карте уровней
+    if (tournamentPlay) tournamentPlay.addEventListener('click', startTournament);
+
+    // Дуэль дня ⚔️ — кнопка «Играть» (партия) и «Вызвать друга» (отправка вызова)
+    if (duelPlay) duelPlay.addEventListener('click', startDuel);
+    if (duelChallengeBtn) duelChallengeBtn.addEventListener('click', () => runSocial(async () => {
+        const info = duelInfo(state);
+        if (!info.completedToday || (info.best || 0) <= 0) {
+            showToast('Сначала сыграй дуэль дня', '⚔️');
+            return;
+        }
+        // Вызов на дуэль: requestKey содержит дату и счёт — получателю он придёт
+        // как vk_request_key, и он сможет сыграть ту же доску и сравнить очки.
+        const key = buildDuelRequestKey(info.best);
+        const msg = `⚔️ Я набрал ${(info.best || 0).toLocaleString('ru')} в «Океан 2048» на доске дуэли. Сможешь побить? Та же доска, 50 ходов!`;
+        const ok = await sdk.showRequest(undefined, msg, key);
+        showToast(ok ? 'Вызов на дуэль отправлен!' : 'Не удалось отправить вызов', ok ? '⚔️' : '⚠️');
+    }));
 
     // Еженедельный челлендж 📅 — кнопка в карте уровней
     if (weeklyPlay) weeklyPlay.addEventListener('click', startWeekly);
@@ -2672,17 +3856,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (homeScreenBtn) homeScreenBtn.hidden = false;
     }
 
+    // Приглашение с наградой 👥: лимит N наград в день (INVITE_DAILY_LIMIT),
+    // за каждое отправленное приглашение — +INVITE_REWARD жемчужин.
+    // В тексте кнопки показываем остаток дня.
+    function renderInviteBtn() {
+        if (!inviteBtn) return;
+        const info = inviteInfo(state);
+        const left = info.remainingToday;
+        const label = `👥 Пригласить друзей (${left}/${info.dailyLimit})`;
+        inviteBtn.textContent = left > 0 ? `${label} +${INVITE_REWARD} 🦪` : label;
+    }
+
     if (inviteBtn) inviteBtn.addEventListener('click', () => runSocial(async () => {
+        const info = inviteInfo(state);
+        if (info.remainingToday <= 0) {
+            showToast(`Лимит приглашений на сегодня (${info.dailyLimit}) исчерпан`, '👥');
+            return;
+        }
         const ok = await sdk.showInvite('ocean2048_invite');
-        showToast(ok ? 'Приглашение отправлено!' : 'Не удалось пригласить', ok ? '👥' : '⚠️');
+        if (!ok) { showToast('Не удалось пригласить', '⚠️'); return; }
+        const res = recordInvite(state);
+        saveState(state);
+        if (res.rewarded) {
+            addDoubloons(res.reward, 'приглашение друга', '👥');
+        }
+        renderInviteBtn();
     }));
+    renderInviteBtn();
+
+    // Сообщение-вызов «Побей мой рекорд» 💪: «умный текст» (рекорд + глубина),
+    // награда отправителю с дневным лимитом (REQUEST_DAILY_LIMIT).
+    function renderRequestBtn() {
+        if (!requestBtn) return;
+        const info = requestsInfo(state);
+        const left = info.remainingToday;
+        const label = `💪 Вызвать друга (${left}/${info.dailyLimit})`;
+        requestBtn.textContent = left > 0 ? `${label} +${REQUEST_REWARD} 🦪` : label;
+    }
 
     if (requestBtn) requestBtn.addEventListener('click', () => runSocial(async () => {
-        const best = state.bestTotal || 0;
-        const msg = `🌊 Я набрал ${best.toLocaleString('ru')} очков в «Океан 2048». Сможешь больше?`;
+        const info = requestsInfo(state);
+        if (info.remainingToday <= 0) {
+            showToast(`Лимит вызовов на сегодня (${info.dailyLimit}) исчерпан`, '💪');
+            return;
+        }
+        const msg = buildChallengeText(state.bestTotal || 0, state.currentLevel || 1);
         const ok = await sdk.showRequest(undefined, msg, 'ocean2048_challenge');
-        showToast(ok ? 'Вызов отправлен!' : 'Не удалось отправить вызов', ok ? '💪' : '⚠️');
+        if (!ok) { showToast('Не удалось отправить вызов', '⚠️'); return; }
+        const res = recordRequest(state);
+        saveState(state);
+        if (res.rewarded) {
+            addDoubloons(res.reward, 'вызов друга', '💪');
+        }
+        renderRequestBtn();
     }));
+    renderRequestBtn();
 
     if (storyBtn) storyBtn.addEventListener('click', () => runSocial(async () => {
         const best = state.bestTotal || 0;
@@ -2711,10 +3939,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }));
 
     // ── Контексты запуска (диплинки VK, Фаза 2) ────────────────
-    // vk_request_key — игрок пришёл по приглашению/запросу друга. Приветствуем.
+    // vk_request_key — игрок пришёл по приглашению/запросу друга. Приветствуем
+    // и выдаём одноразовый приветственный бонус (WELCOME_BONUS жемчужин).
     const launchParams = sdk.getLaunchParams();
-    if (sdk.host === 'vk' && launchParams.vk_request_key) {
+    if (launchParams.vk_request_key) {
         showToast('Друг позвал тебя в океан! 🌊', '🐬');
+        const welcomed = claimWelcomeBonus(state);
+        if (welcomed) {
+            saveState(state);
+            addDoubloons(WELCOME_BONUS, 'приветственный подарок от друга', '🎁');
+        }
+        // Дуэль ⚔️: если друг отправил вызов на дуэль (requestKey ocean2048_duel_*),
+        // сохраняем его счёт — на карте уровней появится соперник.
+        const duelChallenge = applyDuelChallenge(state, launchParams.vk_request_key);
+        if (duelChallenge.accepted) {
+            saveState(state);
+            showToast(`Друг набрал ${duelChallenge.score.toLocaleString('ru')} — побей его!`, '⚔️');
+        }
     }
 
     // ── Магазин / ежедневный вход / бусты ────────────────────
@@ -2755,6 +3996,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // П. 1.19.3: пауза — стоп геймплея, снятие паузы — возобновление.
         if (paused) markGameplayStop();
         else if (game && !game.gameOver && !game.won) markGameplayStart();
+        // Осенние листья и «живой океан» тоже останавливаются на паузе.
+        if (paused) pauseAutumn();
+        else resumeAutumn();
+        if (paused) pauseAtmosphere();
+        else resumeAtmosphere();
     }
 
     // ── Показ полноэкранной рекламы: звук и геймплей на паузу (п. 4.7) ──
@@ -2762,6 +4008,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function runWithAdPause(action) {
         const wasPaused = !!(game && game.paused);
         suspendSound();
+        pauseAtmosphere();
         // П. 1.19.3: перед рекламой игровой процесс останавливается.
         markGameplayStop();
         if (game && !game.gameOver && !game.won && !game.paused) {
@@ -2771,6 +4018,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return await action();
         } finally {
             resumeSound();
+            resumeAtmosphere();
             if (game && !wasPaused && !game.gameOver && !game.won) {
                 game.setPaused(false);
                 // П. 1.19.3: после рекламы геймплей возобновляется.
@@ -2778,6 +4026,40 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     }
+
+    // ── Переключатель режима: Глубины / Классика ─────────────
+    function setGameMode(mode) {
+        // Если мы УЖЕ в базовом режиме (не в спец-режиме puzzle/tournament/duel/
+        // challenge/weekly, которые запускаются поверх «Глубины/Классики») — клик
+        // по активной кнопке игнорируем (не рестартуем партию без нужды).
+        // Если же активен спец-режим — клик по кнопке режима выводит из него
+        // в соответствующий базовый режим.
+        if (mode === gameMode && runKind === gameMode) return;
+        // Спасаем текущую партию (доска сохраняется в своём слоте). Ориентируемся
+        // на runKind, а не gameMode: спец-режимы (puzzle/tournament/duel/
+        // challenge/weekly) запускаются ПОВЕРХ режима «Глубины/Классика» и не
+        // должны сохранять свою доску в слот классики или уровня.
+        if (game && runKind === 'classic') saveClassicBoard();
+        else if (game && runKind === 'depth') saveBoard();
+        if (pauseOverlay) pauseOverlay.classList.remove('visible');
+        if (confirmModal) confirmModal.classList.remove('visible');
+
+        gameMode = mode;
+        state.mode = mode;
+        saveState(state);
+
+        // Подсветка активной кнопки
+        if (modeDepthBtn) modeDepthBtn.classList.toggle('active', mode === 'depth');
+        if (modeClassicBtn) modeClassicBtn.classList.toggle('active', mode === 'classic');
+        if (modeDepthBtn) modeDepthBtn.setAttribute('aria-selected', String(mode === 'depth'));
+        if (modeClassicBtn) modeClassicBtn.setAttribute('aria-selected', String(mode === 'classic'));
+
+        if (mode === 'classic') startClassic();
+        else startLevel(resolveStartLevel());
+    }
+
+    if (modeDepthBtn) modeDepthBtn.addEventListener('click', () => setGameMode('depth'));
+    if (modeClassicBtn) modeClassicBtn.addEventListener('click', () => setGameMode('classic'));
 
     pauseBtn.addEventListener('click', () => {
         if (!game || game.won || game.gameOver) return;
@@ -2793,6 +4075,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             suspendSound();
+            pauseAutumn();
+            pauseAtmosphere();
             // На Яндекс Играх паузу при сворачивании/смене вкладки ставит сама
             // платформа через событие game_api_pause (п. 1.19.4) — обработчик
             // onPlatformPause. Для VK и веба оставляем резервный механизм.
@@ -2802,17 +4086,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } else {
             resumeSound();
+            resumeMusic();
+            resumeAutumn();
+            resumeAtmosphere();
         }
     });
 
-    // Потеря фокуса окна/iframe — звук останавливается (п. 1.3), при возврате — возобновляется.
-    window.addEventListener('blur', () => suspendSound());
-    window.addEventListener('focus', () => resumeSound());
+    // Потеря фокуса окна/iframe — звук и анимации фона останавливаются (п. 1.3),
+    // при возврате — возобновляются.
+    window.addEventListener('blur', () => { suspendSound(); suspendMusic(); pauseAtmosphere(); });
+    window.addEventListener('focus', () => { resumeSound(); resumeMusic(); resumeAtmosphere(); });
 
     // Запрет контекстного меню на игровом поле (п. 1.6.1.8 / 1.6.2.7):
     // правый клик на десктопе и долгое нажатие на мобильных не открывают меню.
     document.addEventListener('contextmenu', (e) => {
-        if (e.target.closest && e.target.closest('.board, .dpad')) e.preventDefault();
+        if (e.target.closest && e.target.closest('.board')) e.preventDefault();
     });
 
     // Esc — выход из паузы
@@ -2893,18 +4181,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.target === tutorialModal) closeTutorial();
     });
 
-    // ── D-pad (кнопки-стрелки на экране) ────────────────────
-
-    [[dpadUp, 'up'], [dpadDown, 'down'], [dpadLeft, 'left'], [dpadRight, 'right']].forEach(([btn, dir]) => {
-        // click — резервный вариант для мышки/тачпада
-        btn.addEventListener('click', () => game?.handleMove(dir));
-        // touchstart — быстрее, без задержки 300 мс
-        btn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            game?.handleMove(dir);
-        }, { passive: false });
-    });
-
     // ── Service Worker (только standalone-веб / PWA) ─────────
     // На площадках (VK / Яндекс) SW не регистрируем: там свой кэш/подгрузка,
     // и service worker в iframe не нужен.
@@ -2927,7 +4203,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     let resizeTimer = null;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => { if (game) game.render(); }, 120);
+        resizeTimer = setTimeout(() => {
+            // «Живой океан»: пересчитываем размер канваса и плотность обитателей
+            ocean.resize();
+            ocean.setTheme(state.theme || 'dark',
+                window.innerWidth < 480 ? 'mobile' : window.innerWidth < 900 ? 'tablet' : 'desktop');
+            if (game && typeof game.relayout === 'function') game.relayout();
+            else if (game) game.render();
+        }, 120);
     });
 
     // ── Старт ────────────────────────────────────────────────
@@ -2985,14 +4268,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Фаза 1: пузырьки-фон сразу (если анимации разрешены)
     spawnBubbles();
 
+    // Живой океан: стартуем канвас-атмосферу (тема уже применена в applyAppearance)
+    startAtmosphere();
+
     applyAppearance();
+    // Режим по умолчанию: Глубины (основная игра); Классика — если сохранена
+    gameMode = state.mode === 'classic' ? 'classic' : 'depth';
+    if (modeClassicBtn) modeClassicBtn.classList.toggle('active', gameMode === 'classic');
+    if (modeDepthBtn) modeDepthBtn.classList.toggle('active', gameMode === 'depth');
+    if (modeClassicBtn) modeClassicBtn.setAttribute('aria-selected', String(gameMode === 'classic'));
+    if (modeDepthBtn) modeDepthBtn.setAttribute('aria-selected', String(gameMode === 'depth'));
     updateHeader();
     updateDoubloons();
     ensureDaily();
     renderDaily();
     renderDailyLogin();
-    startLevel(state.currentLevel);
+    if (gameMode === 'classic') startClassic();
+    else startLevel(resolveStartLevel());
     updateBoostBar();
+
+    // Фоновая музыка: стартуем (без жеста не зазвучит — OST через HTMLAudio тоже
+    // стартует по первому клику; трек сохраняется в state.musicTrack).
+    // Играет только оригинальный саундтрек; легаси-ключи процедурных тем
+    // из старых сейвов нормализуются в 'ost' внутри playTrack().
+    if (state.music !== false) {
+        playTrack(state.musicTrack || 'ost');
+        setOstContext(runKind); // при старте runKind уже установлен (depth/classic)
+    }
 
     // Загрузочный экран завершён
     if (loadingBarFill) loadingBarFill.style.width = '100%';

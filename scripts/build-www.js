@@ -25,6 +25,7 @@ for (const [from, to] of [
     ['css', 'css'],
     ['icons', 'icons'],
     ['privacy-policy.html', 'privacy-policy.html'],
+    ['audio/ost', 'audio/ost'], // оригинальный саундтрек (2 MP3 Kevin MacLeod)
 ]) {
     const src = join(root, from);
     if (!existsSync(src)) {
@@ -39,6 +40,8 @@ const html = markHtmlAsNative(readFileSync(join(root, 'index.html'), 'utf8'));
 writeFileSync(join(www, 'index.html'), html);
 
 // Бандл с Capacitor
+// sourcemap: false — карта исходников (app.js.map, ~730 КБ) не нужна в прод-бандле;
+// в релизе она только увеличивает размер и не отдаётся пользователям.
 const esbuild = require('esbuild');
 await esbuild.build({
     entryPoints: [join(root, 'js/native-entry.js')],
@@ -48,7 +51,7 @@ await esbuild.build({
     platform: 'browser',
     target: ['es2020'],
     minify: true,
-    sourcemap: true,
+    sourcemap: false,
     logLevel: 'info',
 });
 

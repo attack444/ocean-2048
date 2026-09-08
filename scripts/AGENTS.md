@@ -34,17 +34,19 @@
 
 ## Чекеры и тесты
 
-- `check-png.ps1`, `verify-yandex-zip.ps1` — проверка ассетов/архива (PowerShell, Windows).
+- `verify-yandex-zip.ps1` — проверка ассетов/архива (PowerShell, Windows).
 - `check-texts.mjs` — проверка текстов.
 - `ui-check.mjs`, `analyze-dom.mjs`, `probe.html`, `test-driver.html` (в `store/`) — UI-проверки через Playwright/браузер.
+- `audit.js` — статическая проверка проекта (синтаксис, id, импорты).
 - Тесты Node: `*.test.js` — запускаются через `npm test`.
 
 ## Структура вспомогательных каталогов
 
-- `scripts/archive/` — старые скрипты (архив, не использовать).
-- `scripts/audit/` — аудиты/отчёты.
 - `scripts/lib/` — общие утилиты для скриптов.
-- `store/_vk-docs/` — документация VK API.
+- `store/_vk-docs/` — документация VK API (справочник платформы).
+
+> Не-игровые материалы (аудит сайтов 5MB2/NeoBrain, шаблоны реквизитов,
+> обложки других игр студии) вынесены из репозитория в `D:/5MB2-Work/`.
 
 ## Правила
 

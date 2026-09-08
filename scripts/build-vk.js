@@ -12,6 +12,10 @@
  *   вне VK js/platform-sdk.js сам подгрузит vk-bridge с unpkg (ensureBridge).
  * - Не копируются тесты (*.test.js), мусор слияния (board/config/utils/ui)
  *   и нативные точки входа (native-entry/native-plugins).
+ * - JS и CSS МИНИФИЦИРУЮТСЯ через esbuild (scripts/lib/minify.mjs) — пофайлово,
+ *   без бандлинга (относительные ESM-импорты сохраняются). Это ускоряет загрузку
+ *   и обновления на платформах (каждое обновление = повторная загрузка файлов).
+ * - Исключаются магазинные ассеты, не нужные игрокам: icon-1024.png, screenshot-mobile.png.
  * - Сохраняются manifest.json и sw.js (PWA-метаданные безвредны и полезны для VK).
  *
  * Результат — папка build/vk/, готовый комплект для заливки в public/games/<slug>/
@@ -20,6 +24,7 @@
 import { cpSync, mkdirSync, rmSync, readdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { minifyJS, minifyCSS } from './lib/minify.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'build', 'vk');
@@ -51,22 +56,57 @@ function copyIndexHtml() {
     writeFileSync(join(out, 'index.html'), html);
 }
 
-const staticFiles = ['manifest.json', 'sw.js', 'privacy-policy.html'];
+// manifest.json копируем с вырезкой «screenshots»: screenshot-mobile.png —
+// магазинный ассет, в веб-сборку не попадает (см. SKIP_ICONS ниже), и битая
+// ссылка в манифесте ломала бы установку PWA.
+function copyManifest() {
+    const src = join(root, 'manifest.json');
+    if (!existsSync(src)) { console.warn('skip missing: manifest.json'); return; }
+    let m = readFileSync(src, 'utf8');
+    m = m.replace(/,\s*"screenshots"\s*:\s*\[[\s\S]*?\]/, '');
+    writeFileSync(join(out, 'manifest.json'), m);
+}
+
+const staticFiles = ['sw.js', 'privacy-policy.html'];
 copyIndexHtml();
+copyManifest();
 for (const f of staticFiles) {
     const src = join(root, f);
     if (existsSync(src)) cpSync(src, join(out, f));
     else console.warn(`skip missing: ${f}`);
 }
 
-// CSS: только актуальный styles.css
+// CSS: только актуальный styles.css (минифицированный)
 if (existsSync(join(root, 'css', 'styles.css'))) {
-    cpSync(join(root, 'css', 'styles.css'), join(out, 'css', 'styles.css'));
+    const css = readFileSync(join(root, 'css', 'styles.css'), 'utf8');
+    const min = await minifyCSS(css, 'styles.css');
+    writeFileSync(join(out, 'css', 'styles.css'), min);
 }
 
-// Icons: все иконки PWA
+// Icons: все иконки PWA, кроме магазинных ассетов, не нужных в вебе
+// (icon-1024.png и screenshot-mobile.png — для магазинов/кабинета, а не игроков).
+const SKIP_ICONS = new Set(['icon-1024.png', 'screenshot-mobile.png']);
 if (existsSync(join(root, 'icons'))) {
-    cpSync(join(root, 'icons'), join(out, 'icons'), { recursive: true });
+    mkdirSync(join(out, 'icons'), { recursive: true });
+    for (const f of readdirSync(join(root, 'icons'))) {
+        if (SKIP_ICONS.has(f)) {
+            console.log(`  (пропуск магазинного ассета: icons/${f})`);
+            continue;
+        }
+        cpSync(join(root, 'icons', f), join(out, 'icons', f));
+    }
+}
+
+// Оригинальный саундтрек (OST): 2 MP3 Kevin MacLeod — копируем целиком.
+const ostDir = join(root, 'audio', 'ost');
+if (existsSync(ostDir)) {
+    mkdirSync(join(out, 'audio', 'ost'), { recursive: true });
+    for (const f of readdirSync(ostDir)) {
+        if (f.endsWith('.mp3')) cpSync(join(ostDir, f), join(out, 'audio', 'ost', f));
+    }
+    console.log('  (OST: audio/ost/*.mp3 скопированы)');
+} else {
+    console.warn('skip missing: audio/ost');
 }
 
 // ── JS-модули веб-версии ─────────────────────────────────────
@@ -80,14 +120,28 @@ const modules = readdirSync(jsDir)
     .filter((f) => !f.endsWith('.test.js'))
     .filter((f) => !EXCLUDE.has(f));
 
+// ── Минификация JS-модулей через esbuild (пофайлово, без бандлинга) ──
+// Относительные ESM-импорты (./game.js и т.п.) сохраняются — модули резолвятся
+// как в исходниках, но код ужат (main.js ~147 КБ → ~55 КБ).
+let totalRaw = 0;
+let totalMin = 0;
+const minified = [];
 for (const f of modules) {
-    cpSync(join(jsDir, f), join(out, 'js', f));
+    const srcPath = join(jsDir, f);
+    const src = readFileSync(srcPath, 'utf8');
+    const min = await minifyJS(src, f);
+    totalRaw += src.length;
+    totalMin += min.length;
+    writeFileSync(join(out, 'js', f), min);
+    minified.push(f);
 }
 
 writeFileSync(
     join(out, 'build.json'),
-    JSON.stringify({ platform: 'vk', version: '1.0.0', jsModules: modules.length }, null, 2)
+    JSON.stringify({ platform: 'vk', version: '1.0.0', jsModules: modules.length, minified: true }, null, 2)
 );
 
+const savedPct = totalRaw ? Math.round((1 - totalMin / totalRaw) * 100) : 0;
 console.log(`✓ build/vk готов: статика (index.html без /sdk.js) + ${modules.length} JS-модулей + css + icons`);
-console.log(`  Файлы: ${modules.join(', ')}`);
+console.log(`  JS: ${Math.round(totalRaw / 1024)} КБ → ${Math.round(totalMin / 1024)} КБ (минификация −${savedPct}%)`);
+console.log(`  Файлы: ${minified.join(', ')}`);

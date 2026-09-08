@@ -27,6 +27,7 @@ const baseLocal = {
     inventory: { shuffle: 2, bomb: 0, x2: 1 },
     perks: { coinBonus: true },
     dailyStreak: { days: 3, lastClaim: '2026-08-16' },
+    pointsBalance: 1200,
 };
 
 const baseCloud = {
@@ -51,6 +52,7 @@ const baseCloud = {
     inventory: { shuffle: 1, bomb: 3, x2: 0 },
     perks: { extraUndos: true },
     dailyStreak: { days: 2, lastClaim: '2026-08-15' },
+    pointsBalance: 500,
 };
 
 describe('cloud-sync.updatedAt', () => {
@@ -90,6 +92,7 @@ describe('cloud-sync.resolveConflict', () => {
         assert.equal(m.bestTile, 256);
         assert.equal(m.gamesPlayed, 7);
         assert.equal(m.doubloons, 50);
+        assert.equal(m.pointsBalance, 1200); // максимум: earned points не теряются
         assert.equal(m.hintsUsed, 0);
         assert.equal(m.undoCount, 0);
         assert.equal(m.lastAdTime, 1000);
@@ -128,6 +131,18 @@ describe('cloud-sync.resolveConflict', () => {
         assert.deepEqual(m.dailyStreak, baseCloud.dailyStreak);
     });
 
+    it('keeps pointsBalance when only one side has it', () => {
+        const local = { ...baseLocal };
+        delete local.pointsBalance;
+        let m = resolveConflict(local, baseCloud);
+        assert.equal(m.pointsBalance, 500); // из облака
+
+        const cloud = { ...baseCloud };
+        delete cloud.pointsBalance;
+        m = resolveConflict(baseLocal, cloud);
+        assert.equal(m.pointsBalance, 1200); // из локалки
+    });
+
     it('keeps the base daily block when dates differ', () => {
         const local = { ...baseLocal };
         const cloud = {
@@ -138,6 +153,132 @@ describe('cloud-sync.resolveConflict', () => {
         const m = resolveConflict(local, cloud); // cloud newer
         assert.deepEqual(m.daily, cloud.daily);
         assert.deepEqual(m.dailyCounters, cloud.dailyCounters);
+    });
+
+    it('merges the daily tournament (max best, OR played, union claimed) when the date matches', () => {
+        const local = {
+            ...baseLocal,
+            tournament: { date: '2026-08-30', best: 1500, played: true, claimed: [500, 1000] },
+        };
+        const cloud = {
+            ...baseCloud,
+            tournament: { date: '2026-08-30', best: 2100, played: false, claimed: [500, 1800] },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.tournament, {
+            date: '2026-08-30',
+            best: 2100, // max из двух устройств
+            played: true, // OR
+            claimed: [500, 1000, 1800], // union
+        });
+    });
+
+    it('keeps the tournament from the only side that has it', () => {
+        const local = {
+            ...baseLocal,
+            tournament: { date: '2026-08-30', best: 900, played: true, claimed: [500] },
+        };
+        const cloud = { ...baseCloud }; // без tournament
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud, baseT = null
+        assert.deepEqual(m.tournament, local.tournament);
+
+        // Симметрично: турнир только в облаке
+        const m2 = resolveConflict(baseLocal, cloud);
+        assert.equal(m2.tournament, undefined);
+    });
+
+    it('keeps the newer tournament when dates differ (no cross-day merge)', () => {
+        const local = {
+            ...baseLocal,
+            tournament: { date: '2026-08-29', best: 5000, played: true, claimed: [500, 1000, 1800, 2800] },
+        };
+        const cloud = {
+            ...baseCloud,
+            tournament: { date: '2026-08-30', best: 700, played: true, claimed: [500] },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.tournament, cloud.tournament);
+    });
+
+    it('merges invites without duplicating the welcome bonus', () => {
+        const local = {
+            ...baseLocal,
+            invite: { date: '2026-08-30', count: 3, welcomeClaimed: false },
+        };
+        const cloud = {
+            ...baseCloud,
+            invite: { date: '2026-08-30', count: 1, welcomeClaimed: true },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.invite, {
+            date: '2026-08-30',
+            count: 3, // максимум счётчика
+            welcomeClaimed: true, // OR — бонус не выдаётся повторно
+        });
+    });
+
+    it('keeps the invite block from the only side that has it', () => {
+        const local = {
+            ...baseLocal,
+            invite: { date: '2026-08-30', count: 2, welcomeClaimed: true },
+        };
+        const m = resolveConflict(local, baseCloud); // cloud newer → base = cloud
+        assert.deepEqual(m.invite, local.invite);
+    });
+
+    it('merges request counters by max for the same day', () => {
+        const local = {
+            ...baseLocal,
+            requests: { date: '2026-08-30', count: 4 },
+        };
+        const cloud = {
+            ...baseCloud,
+            requests: { date: '2026-08-30', count: 1 },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.requests, { date: '2026-08-30', count: 4 });
+    });
+
+    it('merges the daily duel by max best/wins and union of claimed rewards', () => {
+        const local = {
+            ...baseLocal,
+            duel: { date: '2026-08-30', best: 2000, played: true, wins: 1, claimed: ['win'], pendingScore: 0 },
+        };
+        const cloud = {
+            ...baseCloud,
+            duel: { date: '2026-08-30', best: 1500, played: true, wins: 2, claimed: ['lose'], pendingScore: 4200 },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.duel, {
+            date: '2026-08-30',
+            best: 2000,        // максимум счёта
+            played: true,      // играли хоть где-то
+            wins: 2,           // максимум побед дня
+            claimed: ['lose', 'win'], // объединение наград (не дублируются)
+            pendingScore: 4200, // счёт соперника из более свежего состояния
+        });
+    });
+
+    it('keeps the duel block from the only side that has it', () => {
+        const local = {
+            ...baseLocal,
+            duel: { date: '2026-08-30', best: 900, played: true, wins: 0, claimed: ['lose'], pendingScore: 0 },
+        };
+        const m = resolveConflict(local, baseCloud); // cloud newer → base = cloud
+        assert.deepEqual(m.duel, local.duel);
+    });
+
+    it('keeps the newer duel when dates differ (no cross-day merge)', () => {
+        const local = {
+            ...baseLocal,
+            duel: { date: '2026-08-29', best: 5000, played: true, wins: 1, claimed: ['win'], pendingScore: 0 },
+        };
+        const cloud = {
+            ...baseCloud,
+            duel: { date: '2026-08-30', best: 700, played: false, wins: 0, claimed: [], pendingScore: 0 },
+        };
+        const m = resolveConflict(local, cloud); // cloud newer → base = cloud
+        assert.deepEqual(m.duel, cloud.duel);
     });
 
     it('clamps currentLevel to the max unlocked level if it regressed', () => {

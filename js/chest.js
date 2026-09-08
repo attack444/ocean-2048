@@ -108,6 +108,28 @@ export function exchangeUsedToday(state, day = todayKey()) {
     return state ? ((state.exchangeDaily || {})[day] || 0) : 0;
 }
 
+/**
+ * Зачислить очки, заработанные за партию, в баланс обмена (pointsBalance).
+ * Одна и та же партия может завершаться несколько раз (победа → «продолжить»
+ * → game over, спасение после game over), поэтому начисляется только разница
+ * между итоговым счётом и уже зачтённым (alreadyCredited), без задвоений.
+ *
+ * @param {object} state — игровое состояние (мутируется).
+ * @param {number} finalScore — итоговый счёт партии.
+ * @param {number} [alreadyCredited=0] — сколько очков этой партии уже зачтено.
+ * @returns {{gained:number, total:number}} фактически зачтено и полный счёт.
+ */
+export function creditGamePoints(state, finalScore, alreadyCredited = 0) {
+    if (!state) return { gained: 0, total: 0 };
+    const total = Math.max(0, Math.floor(Number(finalScore) || 0));
+    const credited = Math.max(0, Math.floor(Number(alreadyCredited) || 0));
+    const gained = Math.max(0, total - credited);
+    if (gained > 0) {
+        state.pointsBalance = (state.pointsBalance || 0) + gained;
+    }
+    return { gained, total };
+}
+
 /** Ключ текущего дня (YYYY-MM-DD по локальному времени). */
 export function todayKey(d = new Date()) {
     const y = d.getFullYear();
