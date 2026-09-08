@@ -90,3 +90,15 @@ export async function hapticLight() {
         }
     } catch (_) {}
 }
+
+/** Сильная вибрация при взрыве бомбы/молнии (только native). */
+export async function hapticHeavy() {
+    try {
+        const plugins = cap();
+        if (plugins?.Haptics) {
+            await plugins.Haptics.impact({
+                style: plugins.ImpactStyle?.Heavy || 'HEAVY',
+            });
+        }
+    } catch (_) {}
+}

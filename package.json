@@ -17,6 +17,7 @@
     "make:promo": "node scripts/make-promo.mjs",
     "make:cover": "node scripts/make-yandex-cover.mjs",
     "make:icons": "node scripts/gen-icons.mjs",
+    "make:android-icons": "node scripts/gen-android-icons.mjs",
     "make:vk": "node scripts/make-vk-assets.mjs",
     "make:community": "node scripts/make-community-assets.mjs",
     "vk:community": "node scripts/vk-community.mjs",

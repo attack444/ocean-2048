@@ -21,6 +21,7 @@ export default class Game {
         this.onSharkEat    = config.onSharkEat    || null;
         this.onAbility     = config.onAbility     || null;
         this.onEvent       = config.onEvent       || null;
+        this.onEbbtide     = config.onEbbtide     || null;
         this.infinity      = !!config.infinity;
         // Лимит ходов (режим «Челлендж» ⏱️): 0 = без лимита,
         // иначе после moveLimit-го хода партия заканчивается (onGameOver).
@@ -40,6 +41,9 @@ export default class Game {
 
         // Случайные события 🎲 — конфиг механики «Глубины ядра» (null = выключено)
         this.events        = this._normalizeEvents(config.events);
+
+        // Прилив и отлив 🌊↔️ — конфиг механики «Глубины ядра» (null = выключено)
+        this.ebbtide       = this._normalizeEbbtide(config.ebbtide);
 
         // Множитель очков от скина/темы (+% за косметику, «Ценность покупок»)
         this.appearanceMultiplier = Math.max(1, Number(config.appearanceMultiplier) || 1);
@@ -109,6 +113,12 @@ export default class Game {
         this.eventsTriggered     = 0;   // сколько событий сработало
         this.eventActive         = false; // вспышка события для UI
 
+        // Прилив и отлив 🌊↔️: состояние механики
+        this.ebbtideMovesUntilFlip = 0; // сколько ходов осталось до смены фазы
+        this.ebbtidePhase          = 'flow'; // текущая фаза: 'flow' (прилив) | 'ebb' (отлив)
+        this.ebbtideEvents         = 0;  // сколько раз сменилась фаза (сработал прилив/отлив)
+        this.ebbtideActive         = false; // вспышка смены фазы для UI
+
         // Рендер (абсолютное позиционирование плиток)
         this._tileEls      = new Map();
         this._pad          = 8;
@@ -173,6 +183,10 @@ export default class Game {
         this.eventMovesUntilNext = this.events ? this.events.interval : 0;
         this.eventsTriggered     = 0;
         this.eventActive         = false;
+        this.ebbtideMovesUntilFlip = this.ebbtide ? this.ebbtide.interval : 0;
+        this.ebbtidePhase          = this.ebbtide ? this.ebbtide.startPhase : 'flow';
+        this.ebbtideEvents         = 0;
+        this.ebbtideActive         = false;
 
         this._addNewTile();
         this._addNewTile();
@@ -219,6 +233,9 @@ export default class Game {
             abilityCleared: this.abilityCleared,
             eventMovesUntilNext: this.eventMovesUntilNext,
             eventsTriggered: this.eventsTriggered,
+            ebbtideMovesUntilFlip: this.ebbtideMovesUntilFlip,
+            ebbtidePhase: this.ebbtidePhase,
+            ebbtideEvents: this.ebbtideEvents,
         };
 
         const scoreBefore = this.score;
@@ -265,6 +282,8 @@ export default class Game {
             this._tickShark();
             // Случайные события 🎲: отсчёт ходов и срабатывание (после акулы, до спавна)
             this._tickEvents();
+            // Прилив и отлив 🌊↔️: отсчёт ходов и смена фазы (после событий, до спавна)
+            this._tickEbbtide();
             this._addNewTile();
             this.render();
             this.onScoreUpdate(this.score);
@@ -322,10 +341,14 @@ export default class Game {
         if (typeof prev.abilityCleared !== 'undefined') this.abilityCleared = prev.abilityCleared;
         if (typeof prev.eventMovesUntilNext !== 'undefined') this.eventMovesUntilNext = prev.eventMovesUntilNext;
         if (typeof prev.eventsTriggered !== 'undefined') this.eventsTriggered = prev.eventsTriggered;
+        if (typeof prev.ebbtideMovesUntilFlip !== 'undefined') this.ebbtideMovesUntilFlip = prev.ebbtideMovesUntilFlip;
+        if (typeof prev.ebbtidePhase !== 'undefined') this.ebbtidePhase = prev.ebbtidePhase;
+        if (typeof prev.ebbtideEvents !== 'undefined') this.ebbtideEvents = prev.ebbtideEvents;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
         this.sharkActive   = false;
         this.eventActive   = false;
+        this.ebbtideActive = false;
         this.won           = false;
         this.gameOver      = false;
         this.winCelebrated = false;
@@ -368,6 +391,9 @@ export default class Game {
             abilityCleared: this.abilityCleared,
             eventMovesUntilNext: this.eventMovesUntilNext,
             eventsTriggered: this.eventsTriggered,
+            ebbtideMovesUntilFlip: this.ebbtideMovesUntilFlip,
+            ebbtidePhase: this.ebbtidePhase,
+            ebbtideEvents: this.ebbtideEvents,
         };
     }
 
@@ -412,10 +438,15 @@ export default class Game {
         this.eventMovesUntilNext = (this.events && typeof state.eventMovesUntilNext === 'number')
             ? state.eventMovesUntilNext : (this.events ? this.events.interval : 0);
         if (typeof state.eventsTriggered === 'number') this.eventsTriggered = state.eventsTriggered;
+        this.ebbtideMovesUntilFlip = (this.ebbtide && typeof state.ebbtideMovesUntilFlip === 'number')
+            ? state.ebbtideMovesUntilFlip : (this.ebbtide ? this.ebbtide.interval : 0);
+        if (typeof state.ebbtidePhase === 'string') this.ebbtidePhase = state.ebbtidePhase;
+        if (typeof state.ebbtideEvents === 'number') this.ebbtideEvents = state.ebbtideEvents;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
         this.sharkActive   = false;
         this.eventActive   = false;
+        this.ebbtideActive = false;
 
         this._updateGridCSS();
         this.render();
@@ -476,17 +507,24 @@ export default class Game {
         return true;
     }
 
+    /** Индексы n наименьших плиток (для позиционирования эффектов взрыва). */
+    _lowestTileIndices(n = 1) {
+        const filled = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            const t = this.tiles[i];
+            if (t) filled.push({ idx: i, value: t.value });
+        }
+        filled.sort((a, b) => a.value - b.value);
+        return filled.slice(0, Math.max(0, Math.floor(Number(n) || 0))).map(r => r.idx);
+    }
+
     /** Буст «Бомба»: удаляет наименьшую плитку с доски (расчищает место, не трогая прогресс). */
     removeLowestTile() {
         if (this._busy) return null;
-        let minIdx = -1;
-        let minVal = Infinity;
-        for (let i = 0; i < this.tiles.length; i++) {
-            const t = this.tiles[i];
-            if (t && t.value < minVal) { minVal = t.value; minIdx = i; }
-        }
-        if (minIdx === -1) return null;
-        this.tiles[minIdx] = null;
+        const idx = this._lowestTileIndices(1)[0];
+        if (idx === undefined) return null;
+        const minVal = this.tiles[idx].value;
+        this.tiles[idx] = null;
         this.render();
         if (this.onSave) this.onSave();
         return minVal;
@@ -495,19 +533,42 @@ export default class Game {
     /** Буст «Молния»: удаляет n наименьших плиток разом. Возвращает массив удалённых значений. */
     removeLowestTiles(n = 3) {
         if (this._busy) return [];
-        const filled = [];
-        for (let i = 0; i < this.tiles.length; i++) {
-            const t = this.tiles[i];
-            if (t) filled.push({ idx: i, value: t.value });
-        }
-        filled.sort((a, b) => a.value - b.value);
-        const removed = filled.slice(0, Math.max(0, Math.floor(Number(n) || 0)));
-        for (const r of removed) this.tiles[r.idx] = null;
+        const removed = this._lowestTileIndices(n);
+        const values = removed.map(idx => this.tiles[idx].value);
+        for (const idx of removed) this.tiles[idx] = null;
         if (removed.length > 0) {
             this.render();
             if (this.onSave) this.onSave();
         }
-        return removed.map(r => r.value);
+        return values;
+    }
+
+    /** Буст «Бомба» (детально): удаляет наименьшую плитку и возвращает { idx, value } или null. */
+    removeLowestTileDetailed() {
+        if (this._busy) return null;
+        const idx = this._lowestTileIndices(1)[0];
+        if (idx === undefined) return null;
+        const value = this.tiles[idx].value;
+        this.tiles[idx] = null;
+        this.render();
+        if (this.onSave) this.onSave();
+        return { idx, value };
+    }
+
+    /** Буст «Молния» (детально): удаляет n наименьших плиток и возвращает [{ idx, value }]. */
+    removeLowestTilesDetailed(n = 3) {
+        if (this._busy) return [];
+        const removed = this._lowestTileIndices(n);
+        const out = [];
+        for (const idx of removed) {
+            out.push({ idx, value: this.tiles[idx].value });
+            this.tiles[idx] = null;
+        }
+        if (out.length > 0) {
+            this.render();
+            if (this.onSave) this.onSave();
+        }
+        return out;
     }
 
     /** Перк «Бонусная плитка»: добавляет плитку value на случайную свободную клетку. */
@@ -558,7 +619,7 @@ export default class Game {
 
     /** Нормализация конфига прилива (null — механика выключена). */
     _normalizeTide(cfg) {
-        if (!cfg || !cfg.enabled) return null;
+        if (!cfg || cfg.enabled === false) return null;
         const num = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -633,7 +694,7 @@ export default class Game {
      * - depth: сколько нижних рядов смывает водоворот.
      */
     _normalizeMoves(cfg) {
-        if (!cfg || !cfg.enabled) return null;
+        if (!cfg || cfg.enabled === false) return null;
         const num = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -717,7 +778,7 @@ export default class Game {
      *   которое игрок активирует сам (тап/клик) — агентивность «когда применить».
      */
     _normalizeAbilities(cfg) {
-        if (!cfg || !cfg.enabled) return null;
+        if (!cfg || cfg.enabled === false) return null;
         const num = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -851,7 +912,7 @@ export default class Game {
      * - protectChance: шанс (0..1), что акула «не заметит» цель (защита мелких).
      */
     _normalizeShark(cfg) {
-        if (!cfg || !cfg.enabled) return null;
+        if (!cfg || cfg.enabled === false) return null;
         const num = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -1023,7 +1084,7 @@ export default class Game {
      * - bubbleMult: множитель «Пузыря».
      */
     _normalizeEvents(cfg) {
-        if (!cfg || !cfg.enabled) return null;
+        if (!cfg || cfg.enabled === false) return null;
         const num = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -1134,6 +1195,83 @@ export default class Game {
             interval: this.events.interval,
             movesUntilNext: this.eventMovesUntilNext,
             triggered: this.eventsTriggered,
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Прилив и отлив 🌊↔️ (Фаза 2.5 «Глубина ядра», механика №6)
+    // Периодическое изменение значений плиток по таймеру: каждые
+    // interval ходов фаза сменяется между «приливом» (все плитки ×2)
+    // и «отливом» (все плитки ÷2, но не ниже 2). Предсказуемый ритм —
+    // игрок планирует слияния под фазу роста, чтобы «зафиксировать»
+    // прирост до того, как отлив уронит значения.
+    // ──────────────────────────────────────────────────────────
+
+    /** Нормализация конфига «Прилив и отлив» (null — выключено). */
+    _normalizeEbbtide(cfg) {
+        if (!cfg || cfg.enabled === false) return null;
+        const num = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const startPhase = cfg.startPhase === 'ebb' ? 'ebb' : 'flow';
+        return {
+            interval:   Math.max(3, Math.floor(num(cfg.interval, 12))),
+            startPhase,
+        };
+    }
+
+    /**
+     * Отсчёт ходов до смены фазы «Прилив и отлив». Вызывается после
+     * _tickEvents() и до _addNewTile() — смена фазы видит доску после
+     * прилива/акулы/событий, но до спавна новой плитки. Не срабатывает,
+     * если игра уже окончена (gameOver).
+     */
+    _tickEbbtide() {
+        if (!this.ebbtide || this.gameOver) return;
+        if (this.ebbtideMovesUntilFlip > 0) this.ebbtideMovesUntilFlip--;
+        if (this.ebbtideMovesUntilFlip > 0) return;
+        // Отсчёт перезапускается в любом случае (даже если смена не смогла примениться)
+        this.ebbtideMovesUntilFlip = this.ebbtide.interval;
+        this._triggerEbbtide();
+    }
+
+    /**
+     * Применение текущей фазы «Прилив и отлив» и переключение на следующую.
+     * Прилив (flow): каждая плитка удваивается (×2). Отлив (ebb): каждая
+     * плитка делится на 2 (вниз), но не ниже 2. Плитки-способности ⚡ не
+     * меняются (у них нет числового значения в обычном смысле — оставляем
+     * их нетронутыми, чтобы не ломать их роль).
+     */
+    _triggerEbbtide() {
+        const phase = this.ebbtidePhase;
+        let changed = 0;
+        for (const t of this.tiles) {
+            if (!t || t.ability) continue;
+            if (phase === 'flow') {
+                t.value *= 2;
+                changed++;
+            } else {
+                const half = Math.max(2, Math.floor(t.value / 2));
+                if (half !== t.value) { t.value = half; changed++; }
+            }
+        }
+        this.ebbtideActive = true;
+        this.ebbtideEvents++;
+        // Переключаем фазу на следующую (прилив → отлив → прилив → …)
+        this.ebbtidePhase = phase === 'flow' ? 'ebb' : 'flow';
+        if (this.onEbbtide) this.onEbbtide({ phase, changed });
+    }
+
+    /** Состояние механики «Прилив и отлив» для UI (null — выключено). */
+    getEbbtide() {
+        if (!this.ebbtide) return null;
+        return {
+            enabled: true,
+            interval: this.ebbtide.interval,
+            phase: this.ebbtidePhase,          // текущая фаза (что применится следующей)
+            movesUntilFlip: this.ebbtideMovesUntilFlip,
+            events: this.ebbtideEvents,
         };
     }
 

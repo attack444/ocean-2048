@@ -1,7 +1,7 @@
 // ======================== Инициализация и управление игрой ========================
 
 import Game from './game.js';
-import { applyPlatform, hapticLight } from './platform.js';
+import { applyPlatform, hapticLight, hapticHeavy } from './platform.js';
 import { playMove, playMerge, playWin, playGameOver, suspendSound, resumeSound } from './sound.js';
 import { stopMusic, playTrack, suspendMusic, resumeMusic, setOstContext } from './music.js';
 import { OceanAtmosphere, computeIntensity } from './atmosphere.js';
@@ -10,7 +10,7 @@ import { applyLevelWin, applyLevelGameOver, isLevelUnlocked } from './progress.j
 import { resolveConflict, mergeBoardSaves } from './cloud-sync.js';
 import { canRevive } from './rewards.js';
 import { comboReward, STREAK_THRESHOLD } from './combo.js';
-import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel, eventsConfigForLevel } from './levels.js';
+import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel, eventsConfigForLevel, ebbtideConfigForLevel } from './levels.js';
 import { ACHIEVEMENTS, evaluateAchievements } from './achievements.js';
 import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, makeRng, seedFromDate } from './daily-puzzle.js';
 import {
@@ -55,6 +55,7 @@ import {
     creditGamePoints,
 } from './chest.js';
 import { makeLeaf, stepLeaf, shouldShowAutumn, AUTUMN_OPTIONS } from './autumn.js';
+import { EffectPlayer } from './effects.js';
 
 const STORAGE_KEY = 'ocean2048_v1';
 const SAVE_KEY    = 'ocean2048_saves';
@@ -194,6 +195,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sharkIndicator = $('shark-indicator');
     const sharkBarFill   = $('shark-bar-fill');
     const sharkCount     = $('shark-count');
+
+    // «Прилив и отлив» 🌊↔️ (Фаза 5.5 «Глубина ядра») — индикатор
+    const ebbtideIndicator = $('ebbtide-indicator');
+    const ebbtideEmoji     = $('ebbtide-emoji');
+    const ebbtideLabel     = $('ebbtide-label');
+    const ebbtideBarFill   = $('ebbtide-bar-fill');
+    const ebbtideCount     = $('ebbtide-count');
 
     // Режим «Челлендж» ⏱️ (Фаза 3) — «N ходов на цель»: индикатор над доской
     const challengeIndicator = $('challenge-indicator');
@@ -636,6 +644,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ocean = new OceanAtmosphere(atmosphereLayer, { reduceMotion });
     ocean.setTheme(state.theme || 'dark', window.innerWidth < 480 ? 'mobile' : window.innerWidth < 900 ? 'tablet' : 'desktop');
 
+    // ── Атака акулы при проигрыше (часть B) ─────────────────────────
+    // Полноэкранный оверлей поверх доски (z-index 5000), под модалкой.
+    // Создаётся один раз из JS, чтобы не трогать разметку index.html.
+    const sharkAttackLayer = document.createElement('div');
+    sharkAttackLayer.className = 'shark-attack-layer';
+    sharkAttackLayer.innerHTML =
+        '<div class="sa-vignette"></div>'
+        + '<canvas></canvas>'
+        + '<div class="sa-flash"></div>';
+    document.body.appendChild(sharkAttackLayer);
+    const sharkAttackCanvas = sharkAttackLayer.querySelector('canvas');
+    const sharkAttackCtx = sharkAttackCanvas.getContext('2d');
+    const sharkAttackFlash = sharkAttackLayer.querySelector('.sa-flash');
+    let sharkAttackBusy = false;
+
+    // ── Зрелищные визуализации событий и механик ─────────────────────
+    // Единый canvas-оверлей (z-index 5000, pointer-events: none) поверх доски.
+    // Переиспользует паттерн атаки акулы; логика событий уже применена в game.js,
+    // здесь — только процедурная графика (вихрь, медузы, пузырь, волна, воронка).
+    const effectLayer = document.createElement('div');
+    effectLayer.className = 'effect-layer';
+    effectLayer.innerHTML = '<canvas></canvas>';
+    document.body.appendChild(effectLayer);
+    const effectCanvas = effectLayer.querySelector('canvas');
+    const effectCtx = effectCanvas.getContext('2d');
+    const effectPlayer = new EffectPlayer(effectCanvas, effectCtx, { reduceMotion });
+
+    // Единая точка входа: если reduce-motion или доска пуста — мгновенно (без оверлея).
+    function playEffect(name, done, extra) {
+        if (reduceMotion || effectPlayer.busy) { if (done) done(); return; }
+        const tiles = boardEl ? boardEl.querySelectorAll(':scope > .tile') : [];
+        if (!boardEl || tiles.length === 0) { if (done) done(); return; }
+        effectPlayer.play(name, boardEl, done, extra);
+    }
+
     // Синхронизация «живого океана» с геймплеем (интенсивность → насыщенность света,
     // скорость течения → суета обитателей).
     function syncAtmosphereToGame() {
@@ -675,6 +718,277 @@ document.addEventListener('DOMContentLoaded', async () => {
     function resumeAtmosphere() {
         if (reduceMotion) return;
         ocean.resume();
+    }
+
+    // ── Атака акулы при проигрыше (часть B) ─────────────────────────
+    // Киношный «укус»: акула быстро выплывает, раскрывает пасть почти на
+    // весь экран, плитки доски «втягиваются» в зев, пасть захлопывается,
+    // и только потом показывается модалка с очками.
+
+    // Рисует голову акулы в раскрытой пасти (профиль, нос вправо).
+    // jaw: 0 = закрыто, 1 = пасть на весь экран. cx,cy — центр зева.
+    function drawSharkHead(ctx, W, H, t, jaw, cx, cy, scale) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+
+        const gap = jaw * H * 0.42;          // раскрытие челюстей (в px сцены)
+        const headLen = W * 0.5;             // длина головы
+        const bodyH = headLen * 0.34;
+
+        // --- Тёмный зев (глубина рта) — рисуется первым, за челюстями ---
+        const maw = ctx.createRadialGradient(0, 0, 10, 0, 0, Math.max(W, H) * 0.5);
+        maw.addColorStop(0, '#1a0508');
+        maw.addColorStop(0.6, '#3a0a10');
+        maw.addColorStop(1, 'rgba(60,10,16,0)');
+        ctx.fillStyle = maw;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, headLen * 0.62, gap + bodyH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- Верхняя челюсть (с носом) ---
+        ctx.fillStyle = '#2e4a5e';
+        ctx.beginPath();
+        ctx.moveTo(headLen * 0.5, -bodyH * 0.2);            // нос
+        ctx.quadraticCurveTo(headLen * 0.45, -bodyH * 1.1, headLen * 0.1, -bodyH * 1.0);
+        ctx.quadraticCurveTo(-headLen * 0.3, -bodyH * 0.9, -headLen * 0.5, -bodyH * 0.4);
+        // линия рта вверх (раскрытие)
+        ctx.lineTo(-headLen * 0.5, -gap * 0.9);
+        ctx.quadraticCurveTo(-headLen * 0.2, -gap * 0.95, headLen * 0.1, -gap * 0.9);
+        ctx.quadraticCurveTo(headLen * 0.35, -gap * 0.8, headLen * 0.5, -gap * 0.55);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Нижняя челюсть ---
+        ctx.beginPath();
+        ctx.moveTo(headLen * 0.5, bodyH * 0.2);             // подбородок
+        ctx.quadraticCurveTo(headLen * 0.4, bodyH * 1.0, headLen * 0.05, bodyH * 0.95);
+        ctx.quadraticCurveTo(-headLen * 0.35, bodyH * 0.85, -headLen * 0.5, bodyH * 0.35);
+        // линия рта вниз (раскрытие)
+        ctx.lineTo(-headLen * 0.5, gap * 0.9);
+        ctx.quadraticCurveTo(-headLen * 0.2, gap * 0.95, headLen * 0.1, gap * 0.9);
+        ctx.quadraticCurveTo(headLen * 0.35, gap * 0.8, headLen * 0.5, gap * 0.55);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Зубья (треугольники) по верхней и нижней челюсти ---
+        ctx.fillStyle = '#e8eef2';
+        const teeth = 9;
+        for (let i = 0; i < teeth; i++) {
+            const f = i / (teeth - 1);
+            const x = headLen * (0.42 - f * 0.85);
+            const yTop = -gap * (0.55 + f * 0.35) - bodyH * 0.05;
+            const yBot = gap * (0.55 + f * 0.35) + bodyH * 0.05;
+            const th = bodyH * (0.5 + f * 0.5);
+            // верхние зубы (вниз)
+            ctx.beginPath();
+            ctx.moveTo(x - headLen * 0.035, yTop);
+            ctx.lineTo(x, yTop + th);
+            ctx.lineTo(x + headLen * 0.035, yTop);
+            ctx.closePath();
+            ctx.fill();
+            // нижние зубы (вверх)
+            ctx.beginPath();
+            ctx.moveTo(x - headLen * 0.035, yBot);
+            ctx.lineTo(x, yBot - th);
+            ctx.lineTo(x + headLen * 0.035, yBot);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // --- Спинной плавник ---
+        ctx.fillStyle = '#2e4a5e';
+        ctx.beginPath();
+        ctx.moveTo(-headLen * 0.05, -bodyH * 0.7);
+        ctx.lineTo(-headLen * 0.18, -bodyH * 1.9);
+        ctx.lineTo(-headLen * 0.4, -bodyH * 0.8);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Глаз (злой, с бликом) ---
+        ctx.fillStyle = '#f5f7f8';
+        ctx.beginPath();
+        ctx.arc(headLen * 0.28, -bodyH * 0.55, bodyH * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#0a0a0a';
+        ctx.beginPath();
+        ctx.arc(headLen * 0.29, -bodyH * 0.55, bodyH * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(headLen * 0.32, -bodyH * 0.6, bodyH * 0.03, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- Жабры ---
+        ctx.strokeStyle = 'rgba(10,20,30,.5)';
+        ctx.lineWidth = Math.max(1, bodyH * 0.05);
+        for (let i = 0; i < 3; i++) {
+            const gx = -headLen * 0.05 - i * headLen * 0.06;
+            ctx.beginPath();
+            ctx.moveTo(gx, -bodyH * 0.5);
+            ctx.quadraticCurveTo(gx + headLen * 0.02, 0, gx, bodyH * 0.5);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    // Запускает анимацию атаки. По завершении вызывает done() → модалка.
+    function runSharkAttack(done) {
+        if (sharkAttackBusy) { done(); return; }
+        sharkAttackBusy = true;
+
+        // Собрать клоны плиток в их текущих экранных позициях.
+        const tiles = boardEl ? Array.from(boardEl.querySelectorAll(':scope > .tile')) : [];
+        const clones = [];
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        // Скрыть реальные плитки на время атаки (доска «пустеет»).
+        tiles.forEach((el) => { el.style.opacity = '0'; });
+
+        // Клоны — точные копии (сохраняют тему/глиф/цвет), позиционируются по экрану.
+        tiles.forEach((el) => {
+            const r = el.getBoundingClientRect();
+            const clone = el.cloneNode(true);
+            clone.className = 'sa-tile';
+            clone.removeAttribute('style');
+            clone.style.width = r.width + 'px';
+            clone.style.height = r.height + 'px';
+            clone.style.transform = `translate(${r.left}px, ${r.top}px)`;
+            clone.style.opacity = '1';
+            sharkAttackLayer.appendChild(clone);
+            clones.push({ el: clone, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height });
+        });
+
+        // Размер canvas под viewport (DPR).
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        sharkAttackCanvas.width = vw * dpr;
+        sharkAttackCanvas.height = vh * dpr;
+        sharkAttackCanvas.style.width = vw + 'px';
+        sharkAttackCanvas.style.height = vh + 'px';
+        sharkAttackCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        sharkAttackLayer.classList.add('active');
+        sharkAttackFlash.classList.remove('go');
+
+        // Направление атаки: акула выплывает снизу-сбоку к центру доски.
+        const fromLeft = Math.random() > 0.5;
+        const boardRect = boardEl ? boardEl.getBoundingClientRect() : { left: vw / 2, top: vh / 2, width: vw * 0.6, height: vh * 0.6 };
+        const targetX = boardRect.left + boardRect.width / 2;
+        const targetY = boardRect.top + boardRect.height / 2;
+
+        const T0 = performance.now();
+        const DUR = 1500; // мс — вся сцена
+
+        // Таймлайн (доли 0..1):
+        //   0.00-0.18  акула выплывает и приближается
+        //   0.18-0.42  челюсти раскрываются до максимума
+        //   0.42-0.78  плитки втягиваются в зев (волной)
+        //   0.78-0.90  челюсти захлопываются
+        //   0.90-1.00  вспышка + затухание
+
+        function frame() {
+            const p = Math.min(1, (performance.now() - T0) / DUR);
+            const ctx = sharkAttackCtx;
+            ctx.clearRect(0, 0, vw, vh);
+
+            // Фазы раскрытия пасти (jaw/scale всегда задаются одной из веток ниже)
+            let jaw;
+            let scale;
+            let cx = targetX;
+            let cy = targetY;
+            if (p < 0.18) {
+                const k = p / 0.18;
+                scale = 0.4 + k * 0.7;              // растёт, приближаясь
+                jaw = k * 0.15;
+                // акула едет от края к центру
+                cx = fromLeft ? (vw * 0.1 + (targetX - vw * 0.1) * k) : (vw * 0.9 + (targetX - vw * 0.9) * k);
+                cy = vh * 0.9 + (targetY - vh * 0.9) * k;
+            } else if (p < 0.42) {
+                const k = (p - 0.18) / 0.24;
+                scale = 1.1 + k * 0.5;
+                jaw = 0.15 + k * 0.85;              // пасть раскрывается почти на весь экран
+            } else if (p < 0.78) {
+                scale = 1.6;
+                jaw = 1;
+            } else if (p < 0.9) {
+                const k = (p - 0.78) / 0.12;
+                jaw = 1 - k;                        // захлопывание
+                scale = 1.6 - k * 0.3;
+            } else {
+                const k = (p - 0.9) / 0.1;
+                jaw = Math.max(0, 1 - k * 3);
+                scale = 1.3 - k * 0.4;
+            }
+
+            // Рисуем акулу (нос вправо; если справа — отражаем по X).
+            ctx.save();
+            if (!fromLeft) {
+                ctx.translate(vw, 0);
+                ctx.scale(-1, 1);
+                drawSharkHead(ctx, vw, vh, p, jaw, vw - cx, cy, scale);
+            } else {
+                drawSharkHead(ctx, vw, vh, p, jaw, cx, cy, scale);
+            }
+            ctx.restore();
+
+            // Плитки-клоны втягиваются в зев (центр пасти ~ targetX,targetY).
+            const suckStart = 0.42;
+            const suckEnd = 0.78;
+            if (p >= suckStart) {
+                const sp = Math.min(1, (p - suckStart) / (suckEnd - suckStart));
+                clones.forEach((c, i) => {
+                    // волна: каждая плитка стартует со своей задержкой
+                    const delay = i / Math.max(1, clones.length) * 0.5;
+                    const cp = Math.max(0, Math.min(1, (sp - delay) / (1 - 0.5)));
+                    if (cp <= 0) return;
+                    const ease = 1 - Math.pow(1 - cp, 3);
+                    const dx = targetX - c.cx;
+                    const dy = targetY - c.cy;
+                    const x = c.cx + dx * ease;
+                    const y = c.cy + dy * ease;
+                    const s = 1 - ease * 0.92;
+                    const rot = ease * (fromLeft ? -1 : 1) * 0.6;
+                    c.el.style.transform =
+                        `translate(${x - c.w / 2}px, ${y - c.h / 2}px) scale(${s}) rotate(${rot}rad)`;
+                    c.el.style.opacity = String(Math.max(0, 1 - ease * 1.4));
+                });
+            }
+
+            if (p < 1) {
+                requestAnimationFrame(frame);
+            } else {
+                finishAttack(done);
+            }
+        }
+
+        function finishAttack(done) {
+            // Вспышка при захлопывании
+            sharkAttackFlash.classList.remove('go');
+            void sharkAttackFlash.offsetWidth;
+            sharkAttackFlash.classList.add('go');
+            // Убрать клоны и оверлей
+            setTimeout(() => {
+                clones.forEach((c) => c.el.remove());
+                sharkAttackLayer.classList.remove('active');
+                // Вернуть плитки (на случай, если модалка закрыта без перезапуска)
+                tiles.forEach((el) => { el.style.opacity = ''; });
+                sharkAttackBusy = false;
+                done();
+            }, 380);
+        }
+
+        requestAnimationFrame(frame);
+    }
+
+    // Единая точка входа: вместо мгновенной модалки — атака акулы.
+    function playSharkGameOver(score, showFn) {
+        if (reduceMotion || sharkAttackBusy) { showFn(); return; }
+        // Не запускаем, если доска пуста или нет плиток (нечего «съедать»).
+        const tiles = boardEl ? boardEl.querySelectorAll(':scope > .tile') : [];
+        if (!boardEl || tiles.length === 0) { showFn(); return; }
+        runSharkAttack(() => showFn());
     }
 
     // Фаза 1: пузырьки-фон за доской (создаются один раз, GPU-анимация)
@@ -1073,6 +1387,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         sharkIndicator.classList.remove('sweep');
         void sharkIndicator.offsetWidth;
         sharkIndicator.classList.add('sweep');
+    }
+
+    /**
+     * Обновить индикатор «Прилив и отлив»: какая фаза наступит следующей
+     * и через сколько ходов. Полоса показывает прогресс до смены фазы.
+     */
+    function updateEbbtideIndicator() {
+        if (!ebbtideIndicator) return;
+        const e = game ? game.getEbbtide() : null;
+        if (!e) {
+            ebbtideIndicator.hidden = true;
+            return;
+        }
+        ebbtideIndicator.hidden = false;
+        const isFlow = e.phase === 'flow';
+        // Фаза, которая применится следующей: прилив (×2) или отлив (÷2)
+        if (ebbtideEmoji) ebbtideEmoji.textContent = isFlow ? '🌊' : '⬇️';
+        if (ebbtideLabel) ebbtideLabel.textContent = isFlow ? 'Прилив' : 'Отлив';
+        // Полоса растёт по мере приближения смены фазы
+        const ratio = Math.max(0, 1 - e.movesUntilFlip / e.interval);
+        if (ebbtideBarFill) ebbtideBarFill.style.width = (ratio * 100).toFixed(0) + '%';
+        if (ebbtideCount) ebbtideCount.textContent = String(e.movesUntilFlip);
+        // Класс фазы для палитры + тревожный режим при приближении смены
+        ebbtideIndicator.classList.toggle('flow', isFlow);
+        ebbtideIndicator.classList.toggle('ebb', !isFlow);
+        ebbtideIndicator.classList.toggle('warning', e.movesUntilFlip <= 1);
+    }
+
+    /** Вспышка индикатора в момент смены фазы «Прилив и отлив». */
+    function flashEbbtide() {
+        if (!ebbtideIndicator || ebbtideIndicator.hidden) return;
+        ebbtideIndicator.classList.remove('sweep');
+        void ebbtideIndicator.offsetWidth;
+        ebbtideIndicator.classList.add('sweep');
     }
 
     // ── «Живой океан»: синхронизация с геймплеем ────────────────────────────────
@@ -1567,6 +1915,69 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    /**
+     * Взрыв на доске в клетках удалённых плиток (буст «Бомба»/«Молния» и плитка 💣).
+     * Создаёт вспышку + расходящееся кольцо + разлетающиеся осколки в каждой клетке.
+     */
+    function spawnBoardBoom(indices, kind = 'bomb') {
+        if (!boardEl || !boardEl.isConnected) return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const cells = boardEl.querySelectorAll(':scope > .cell');
+        const boardRect = boardEl.getBoundingClientRect();
+        const palette = kind === 'lightning'
+            ? { flash: 'rgba(180,230,255,.9)', ring: 'rgba(120,200,255,.85)', shard: 'rgba(160,220,255,.95)' }
+            : { flash: 'rgba(255,210,120,.95)', ring: 'rgba(255,170,60,.9)', shard: 'rgba(255,200,90,.95)' };
+        indices.forEach((idx, k) => {
+            const cell = cells[idx];
+            if (!cell) return;
+            const cr = cell.getBoundingClientRect();
+            const cx = cr.left - boardRect.left + cr.width / 2;
+            const cy = cr.top - boardRect.top + cr.height / 2;
+            // Вспышка
+            const flash = document.createElement('div');
+            flash.className = 'boom-flash';
+            flash.style.left = (cx - cr.width * 0.9) + 'px';
+            flash.style.top = (cy - cr.height * 0.9) + 'px';
+            flash.style.width = (cr.width * 1.8) + 'px';
+            flash.style.height = (cr.height * 1.8) + 'px';
+            flash.style.background = `radial-gradient(circle, ${palette.flash}, rgba(0,0,0,0) 70%)`;
+            boardEl.appendChild(flash);
+            // Расходящееся кольцо
+            const ring = document.createElement('div');
+            ring.className = 'boom-ring';
+            ring.style.left = (cx - cr.width * 0.5) + 'px';
+            ring.style.top = (cy - cr.height * 0.5) + 'px';
+            ring.style.width = cr.width + 'px';
+            ring.style.height = cr.height + 'px';
+            ring.style.borderColor = palette.ring;
+            boardEl.appendChild(ring);
+            // Осколки (8 штук, разлетаются в стороны)
+            const shards = document.createElement('div');
+            shards.className = 'boom-shards';
+            shards.style.left = cx + 'px';
+            shards.style.top = cy + 'px';
+            for (let i = 0; i < 8; i++) {
+                const sh = document.createElement('i');
+                const ang = (i / 8) * Math.PI * 2 + (k * 0.4);
+                sh.style.setProperty('--ang', ang + 'rad');
+                sh.style.background = palette.shard;
+                shards.appendChild(sh);
+            }
+            boardEl.appendChild(shards);
+        });
+        // Доска «вздрагивает» от взрыва
+        boardEl.classList.remove('boom-shake');
+        void boardEl.offsetWidth;
+        boardEl.classList.add('boom-shake');
+        setTimeout(() => boardEl.classList.remove('boom-shake'), 500);
+        // Сильная вибрация на нативных платформах
+        if (platform.isNative) hapticHeavy();
+        // Убираем эффекты после анимации
+        setTimeout(() => {
+            boardEl.querySelectorAll('.boom-flash, .boom-ring, .boom-shards').forEach(el => el.remove());
+        }, 900);
+    }
+
     function useBoostFromBar(key) {
         if (!game || game.gameOver || game.won || game._busy) return;
         // Скины «Вулкан» и «Кракен» (L3): первая бомба в партии — бесплатно.
@@ -1577,12 +1988,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         let ok = false;
+        let boomIndices = [];
         if (key === 'shuffle') {
             ok = game.shuffle() === true;
         } else if (key === 'bomb') {
-            ok = game.removeLowestTile() !== null;
+            const det = game.removeLowestTileDetailed();
+            ok = det !== null;
+            if (det) boomIndices = [det.idx];
         } else if (key === 'lightning') {
-            ok = game.removeLowestTiles(3).length > 0;
+            const det = game.removeLowestTilesDetailed(3);
+            ok = det.length > 0;
+            boomIndices = det.map(d => d.idx);
         } else if (key === 'x2') {
             game.activateScoreMultiplier(3, 3);
             ok = true;
@@ -1613,6 +2029,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         showToast(msgs[key], { shuffle: '🔄', bomb: '💣', lightning: '💫', x2: '⚡' }[key]);
         if (state.sound !== false) playMove();
+        // Взрыв на доске для бомбы и молнии
+        if (boomIndices.length) spawnBoardBoom(boomIndices, key);
     }
 
     // ── Сокровищница: сундук, обмен очков, донат ─────────────
@@ -1960,6 +2378,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             shark:         sharkConfigForLevel(state.currentLevel),
             abilities:     abilitiesConfigForLevel(state.currentLevel),
             events:        eventsConfigForLevel(state.currentLevel),
+            ebbtide:       ebbtideConfigForLevel(state.currentLevel),
             // Ценность покупок: скин+тема дают +% очков, перк «Дух четвёрки» повышает шанс 4,
             // перк «Спокойные воды» отодвигает прилив на 1 ход.
             appearanceMultiplier: appearanceScoreMultiplier(state),
@@ -1987,12 +2406,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateTideIndicator();
                 updateThreatIndicator();
                 updateSharkIndicator();
+                updateEbbtideIndicator();
                 renderMission();
             },
             onTide:  (swept) => {
                 // Прилив смыл нижние ряды: вспышка индикатора + уведомление о возврате очков
                 flashTideSweep();
                 gamePulse('tide');
+                // Зрелищная волна прокатывается по доске сверху вниз (прилив).
+                playEffect('tide', null, { dir: 'down' });
                 const total = swept.reduce((acc, s) => acc + s.gain, 0);
                 if (total > 0) showToast(`Прилив унёс плитки! +${total} очков`, '🌊');
                 else if (swept.length > 0) showToast('Прилив очистил нижний ряд', '🌊');
@@ -2001,6 +2423,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // «Водоворот» за серию бесполезных ходов: смыв без возврата очков
                 flashThreatSweep();
                 gamePulse('threat');
+                // Воронка-водоворот затягивает плитки в центре доски.
+                playEffect('whirlpool', null);
                 const total = swept.reduce((acc, s) => acc + s.value, 0);
                 if (total > 0) showToast(`Водоворот унёс плитки (−${total})`, '🌪️');
                 else if (swept.length > 0) showToast('Водоворот очистил нижний ряд', '🌪️');
@@ -2019,6 +2443,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Плитка-способность ⚡ активирована: эффект + уведомление
                 if (ev.kind === 'bomb') {
                     showToast(`💣 Взрыв! Убрано ${ev.cleared.length} плиток`, '💣');
+                    if (ev.cleared && ev.cleared.length) {
+                        spawnBoardBoom(ev.cleared.map(c => c.idx), 'bomb');
+                    }
                 } else if (ev.kind === 'jelly') {
                     showToast('🪼 Прилив заморожен на ход!', '🪼');
                 } else if (ev.kind === 'crab') {
@@ -2026,11 +2453,31 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             },
             onEvent: (ev) => {
-                // Случайное событие 🎲 сработало: вспышка + уведомление
+                // Случайное событие 🎲 сработало: зрелищная визуализация + уведомление.
                 gamePulse('event');
-                if (ev.kind === 'storm') showToast('🌪️ Шторм перемешал плитки!', '🌪️');
-                else if (ev.kind === 'jelly') showToast(`🪼 Медузий дождь: +${ev.count} плиток`, '🪼');
-                else if (ev.kind === 'bubble') showToast(`🫧 Пузырь: плитка ×${ev.value}!`, '🫧');
+                // Логика уже применена в game.js — оверлей лишь «разыгрывает» её.
+                if (ev.kind === 'storm') {
+                    playEffect('storm', null);
+                    showToast('🌪️ Шторм перемешал плитки!', '🌪️');
+                } else if (ev.kind === 'jelly') {
+                    playEffect('jelly', null, { count: ev.count });
+                    showToast(`🪼 Медузий дождь: +${ev.count} плиток`, '🪼');
+                } else if (ev.kind === 'bubble') {
+                    playEffect('bubble', null);
+                    showToast(`🫧 Пузырь: плитка ×${ev.value}!`, '🫧');
+                }
+            },
+            onEbbtide: (info) => {
+                // Смена фазы «Прилив и отлив» 🌊↔️: вспышка + уведомление.
+                flashEbbtide();
+                gamePulse('tide');
+                // Волна: прилив (flow) идёт сверху вниз, отлив (ebb) — снизу вверх.
+                playEffect('tide', null, { dir: info.phase === 'flow' ? 'down' : 'up' });
+                if (info.phase === 'flow') {
+                    showToast(`🌊 Прилив: все плитки ×2 (${info.changed})`, '🌊');
+                } else {
+                    showToast('⬇️ Отлив: плитки уменьшились вдвое', '⬇️');
+                }
             },
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
@@ -2053,7 +2500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 missionStats.bestStreak = Math.max(missionStats.bestStreak, game.streak || 0);
                 renderMission();
             },
-            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateSharkIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); syncAtmosphereToGame(); },
+            onSave:  () => { saveBoard(); saveState(state); updateUndoState(); updateMoves(); updateTideIndicator(); updateThreatIndicator(); updateSharkIndicator(); updateEbbtideIndicator(); updateBoostBar(); checkAchievements(); checkDaily(); pushCloudSave(); renderMission(); syncAtmosphereToGame(); },
             onTarget: (_score) => {
                 // Бесконечный режим: цель достигнута — празднуем и продолжаем
                 if (state.sound !== false) playWin();
@@ -2127,6 +2574,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск уровня — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -2275,7 +2723,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (sdk.host === 'vk') {
             addModalBtn('🏆 Таблица', 'btn-ghost', () => sdk.showLeaderboard(score, 0));
         }
-        showModal(gameModal);
+        // Киношная атака акулы перед показом модалки (часть B фичи «Акула»).
+        playSharkGameOver(score, () => showModal(gameModal));
     }
 
     function resetCurrentGame() {
@@ -2336,6 +2785,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateChallengeIndicator();
         updateBoostBar();
         checkAchievements();
@@ -2491,7 +2941,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             addModalBtn('👥 Пригласить друзей', 'btn-ghost', () => runSocial(() => sdk.showInvite('ocean2048_invite')));
         }
 
-        showModal(gameModal);
+        // Киношная атака акулы перед показом модалки (часть B фичи «Акула»).
+        playSharkGameOver(score, () => showModal(gameModal));
     }
 
     // ── Выбор уровня ─────────────────────────────────────────
@@ -2760,6 +3211,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск головоломки — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -2891,6 +3343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск турнира — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -3077,6 +3530,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск дуэли — начало игрового процесса.
         if (!loadingScreen || loadingScreen.classList.contains('hidden')) markGameplayStart();
@@ -3304,6 +3758,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateChallengeIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск челленджа — начало игрового процесса.
@@ -3471,6 +3926,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTideIndicator();
         updateThreatIndicator();
         updateSharkIndicator();
+        updateEbbtideIndicator();
         updateChallengeIndicator();
         updateBoostBar();
         // П. 1.19.3: запуск недельного челленджа — начало игрового процесса.
@@ -4293,6 +4749,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateDoubloons();
         showToast(`Dev: +${amount} жемчужин 🦪`, '🦪');
         console.log(`🦪 Dev-режим: выдано ${amount} жемчужин (итого ${state.doubloons})`);
+    })();
+
+    // Dev-режим: точная установка баланса для тестов.
+    // URL-параметр `?setdoubloons=N` на localhost УСТАНАВЛИВАЕТ баланс ровно в N
+    // жемчужин (перезаписывает текущий). Удобно для проверки дорогих покупок:
+    // `?setdoubloons=100000`. Работает только на локальной разработке.
+    (function applyDevSetBalance() {
+        const isLocal = /^localhost$|^127\.0\.0\.1$|^\[::1\]$/.test(location.hostname);
+        if (!isLocal) return;
+        const q = new URLSearchParams(location.search);
+        const amount = Math.floor(Number(q.get('setdoubloons')));
+        if (!Number.isFinite(amount) || amount < 0) return;
+        state.doubloons = amount;
+        saveState(state);
+        updateDoubloons();
+        showToast(`Dev: баланс = ${amount} жемчужин 🦪`, '🦪');
+        console.log(`🦪 Dev-режим: баланс установлен в ${amount} жемчужин`);
     })();
 
     // Dev-режим: ручное тестирование «Плиток-способностей» ⚡ (только localhost).

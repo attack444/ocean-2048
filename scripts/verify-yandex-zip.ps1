@@ -20,8 +20,15 @@ try {
     # Пират|пират собираем из char-кодов.
     $pirRe = 'pirat|pirate|' + [char]0x041F + [char]0x0438 + [char]0x0440 + [char]0x0430 + [char]0x0442 + '|' + [char]0x043F + [char]0x0438 + [char]0x0440 + [char]0x0430 + [char]0x0442
 
+    # Текстовые расширения, которые сканируем на URL/слова. Бинарные файлы
+    # (mp3/png/jpg/...) пропускаем: их байты дают ложные срабатывания на
+    # паттерны вида "s3." (модерация ищет URL в тексте, а не байты в медиа).
+    $textExts = @('.html', '.js', '.mjs', '.css', '.json', '.txt', '.webmanifest', '.md', '.xml', '.svg')
+
     foreach ($e in $zip.Entries) {
         if ($e.FullName -like '*/') { continue }
+        $ext = [System.IO.Path]::GetExtension($e.Name).ToLowerInvariant()
+        if ($ext -notin $textExts) { continue }
         $s = ''
         $sr = New-Object System.IO.StreamReader($e.Open())
         try { $s = $sr.ReadToEnd() } finally { $sr.Close() }

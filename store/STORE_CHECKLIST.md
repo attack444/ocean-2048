@@ -1,7 +1,7 @@
 # ✅ Мастер-чеклист публикации «Океан 2048»
 
 Единый отслеживаемый чеклист перед отправкой в магазины.
-Обновлён: 2026-09-03 (актуализация под OST + осенние материалы).
+Обновлён: 2026-09-08 (актуализация под «Глубину ядра» 6/6 + зрелищные эффекты).
 
 Легенда: **`[x]`** — готово в репозитории / подтверждено; **`[ ]`** — ручной шаг в консоли
 магазина или на устройстве.
@@ -95,6 +95,16 @@
   `android/app/build/outputs/bundle/release/app-release.aab`
   (версия 1.0 / versionCode 1, keystore `tools/keystore/rustore-upload.jks`,
   SHA256withRSA — см. `store/RUSTORE.md`)
+- [x] **`npm run sync` перевыполнена (2026-09-08)** — `www/` и нативные ассеты
+  (`android/app/src/main/assets/public`, `ios/App/App/public`) получили новые механики
+  «Глубины ядра» 6/6 (Прилив и отлив 🌊↔️, зрелищные эффекты, расширенный «живой океан»,
+  визуал акулы) + фикс ebbtide. Нативные ассеты готовы к сборке.
+- [ ] ⚠️ **Пересобрать AAB** — предыдущий собран 2026-09-01 и **не содержит** новых
+  механик «Глубины ядра» 6/6. Сборка **только на машине с Android Studio + Java + SDK**
+  (на текущей машине Java/Android SDK не установлены; `local.properties`/`keystore.properties`
+  указывали на несуществующий `d:\pirat` — пути исправлены 2026-09-08).
+  Шаги: `npm run sync` (уже сделано) → Android Studio → Build → Generate Signed Bundle
+  (или CLI: `gradlew bundleRelease` при настроенном `keystore.properties`).
 - [ ] iOS: собрать на macOS (Xcode → Archive → Distribute)
   ⚠️ Перед сборкой выполнять `npm run sync` (веб-ассеты в `www/` gitignored)
 - [ ] Проверить, что название/скриншоты соответствуют игре (Guideline 2.3.7)
@@ -106,12 +116,13 @@
 - [x] Загрузочный экран с прогрессом (LoadingAPI)
 - [x] Облачные сохранения (`player.setData/getData`, ключ `ocean2048`)
 - [x] Service Worker на площадке отключён (не регистрируется в iframe)
-- [x] Сборка веб-версии: `npm run build:yandex` → `build/yandex/` (20 JS-модулей, минифицированы esbuild)
+- [x] Сборка веб-версии: `npm run build:yandex` → `build/yandex/` (29 JS-модулей, минифицированы esbuild −56%)
 - [x] VK: SDK-адаптер, соц-механики, ассеты кабинета готовы (`store/vk/`, `npm run make:vk`) —
   см. [`VK_GAMES.md`](./VK_GAMES.md) и [`VK_IAP_ACTIVATION.md`](./VK_IAP_ACTIVATION.md)
-- [x] ZIP готов: `build/yandex.zip` (≈179.7 КБ), минификация JS/CSS, иконка в океанском стиле
+- [x] ZIP пересобран (2026-09-08): `build/yandex.zip` (≈11.75 МБ, включает OST-аудио),
+  минификация JS/CSS, иконка в океанском стиле
 - [x] Гайд: [`YANDEX_GAMES.md`](./YANDEX_GAMES.md)
-- [x] Скриншоты 1280×720 готовы (перегенерированы 20.08.2026): `store/shots/yandex-home.png`, `yandex-moves.png`,
+- [x] Скриншоты 1280×720 готовы (перегенерированы 2026-09-08): `store/shots/yandex-home.png`, `yandex-moves.png`,
   `yandex-shop.png`, `yandex-shop-skin.png`
 - [x] Проверка сборки: `scripts/verify-yandex-zip.ps1` → PASS, Playwright smoke-тест → PASS (24.08.2026)
 - [ ] Загрузить ZIP в кабинет Яндекс Игр, заполнить метаданные, загрузить скриншоты 1280×720 и иконку
@@ -128,7 +139,7 @@
 - [x] Иконка 512×512 — `icons/icon-512.png` (RGB, без альфы — проверено)
 - [x] Скриншоты 16:9 сгенерированы (4 шт., горизонтальные JPG 1920×1080):
   `store/shots/rustore-land-{home,moves,shop,shop-skin}.jpg`
-  (`node scripts/make-store-shots.mjs` — таргет RUSTORE, 2026-09-01)
+  (`node scripts/make-store-shots.mjs` — таргет RUSTORE, перегенерированы 2026-09-08)
   ⚠️ Вертикальные `rustore-*.png` (1080×1920) консоль RuStore обрежет — нужны 16:9.
 - [ ] Регистрация в console.rustore.ru + верификация (ИНН)
 - [x] Keystore создан: `tools/keystore/rustore-upload.jks` + `android/keystore.properties`
@@ -146,7 +157,11 @@
 2. **`docs/DEPLOY-NOTES.md` не коммитить** — содержит SSH-доступ и секреты (уже в `.gitignore`).
 3. **Отозвать старый GitHub-токен** `ghp_…` (см. `docs/PROGRESS-NOTES.md`) после восстановления
    доступа к GitHub.
-4. Перед релизом прогонить `npm test` и `npm run lint` (на 2026-09-02: 519/519, чисто).
+4. Перед релизом прогонить `npm test` и `npm run lint` (на 2026-09-08: **582/582**, чисто).
+5. ✅ Новые механики «Глубины ядра» 6/6 (Прилив и отлив 🌊↔️, зрелищные эффекты,
+   расширенный «живой океан», визуал акулы), фикс ebbtide, обновлённые описания/скриншоты
+   и ответы модерации VK/RuStore закоммичены и запушены в ветку `feat/vk-yandex-sdk`
+   (2026-09-08).
 
 ## Ключевые ссылки
 

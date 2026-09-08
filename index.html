@@ -195,6 +195,17 @@
                 <span class="shark-count" id="shark-count">–</span>
             </div>
 
+            <!-- Индикатор «Прилив и отлив» 🌊↔️ (Фаза 5.5: «Глубина ядра»).
+                 Периодическая смена фаз: прилив (все плитки ×2) и отлив (все плитки ÷2,
+                 но не ниже 2). Показывает, какая фаза наступит следующей и через сколько
+                 ходов. Плитки-способности ⚡ при этом не меняются. -->
+            <div id="ebbtide-indicator" class="ebbtide-indicator" hidden>
+                <span class="ebbtide-emoji" id="ebbtide-emoji" aria-hidden="true">🌊</span>
+                <span class="ebbtide-label" id="ebbtide-label">Прилив</span>
+                <span class="ebbtide-bar" aria-hidden="true"><span class="ebbtide-bar-fill" id="ebbtide-bar-fill"></span></span>
+                <span class="ebbtide-count" id="ebbtide-count">–</span>
+            </div>
+
             <!-- Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель».
                  Показывает цель и сколько ходов осталось из лимита. Появляется только
                  когда игрок запустил челлендж с карты уровней. -->

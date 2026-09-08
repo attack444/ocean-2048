@@ -1,7 +1,7 @@
 /* global self, caches, fetch, URL */
 // ======================== Service Worker — Океан 2048 ========================
 // Версию кэша меняй при каждом релизе (принудительно обновит файлы у пользователей)
-const CACHE = 'ocean-2048-v19';
+const CACHE = 'ocean-2048-v22';
 
 const ASSETS = [
     './',

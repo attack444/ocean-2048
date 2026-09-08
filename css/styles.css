@@ -287,6 +287,7 @@ body.mode-classic #mission-bar,
 body.mode-classic #tide-indicator,
 body.mode-classic #threat-indicator,
 body.mode-classic #shark-indicator,
+body.mode-classic #ebbtide-indicator,
 body.mode-classic #challenge-indicator { display: none !important; }
 body.mode-classic .controls { justify-content: center; }
 
@@ -666,6 +667,72 @@ main {
     0%   { transform: scale(1); }
     40%  { transform: scale(.985); }
     100% { transform: scale(1); }
+}
+
+/* ======================== Взрыв бомбы/молнии 💣⚡ ======================== */
+/* Вспышка в точке удалённой плитки */
+.boom-flash {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: boomFlash .5s ease-out forwards;
+    will-change: transform, opacity;
+}
+@keyframes boomFlash {
+    0%   { transform: translate(-50%, -50%) scale(.3); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+}
+
+/* Расходящееся кольцо ударной волны */
+.boom-ring {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+    border: 3px solid;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: boomRing .55s ease-out forwards;
+    will-change: transform, opacity;
+}
+@keyframes boomRing {
+    0%   { transform: translate(-50%, -50%) scale(.2); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+}
+
+/* Осколки, разлетающиеся в стороны */
+.boom-shards {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+}
+.boom-shards i {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    animation: boomShard .6s ease-out forwards;
+    will-change: transform, opacity;
+}
+@keyframes boomShard {
+    0%   { transform: translate(0,0) scale(1) rotate(0deg); opacity: 1; }
+    100% { transform: translate(calc(cos(var(--ang)) * 46px), calc(sin(var(--ang)) * 46px)) scale(.2) rotate(220deg); opacity: 0; }
+}
+
+/* Доска вздрагивает от взрыва */
+.board.boom-shake { animation: boomShake .45s ease-out; }
+@keyframes boomShake {
+    0%,100% { transform: translate(0,0); }
+    15%     { transform: translate(-7px, 3px) rotate(-.4deg); }
+    30%     { transform: translate(6px, -4px) rotate(.4deg); }
+    45%     { transform: translate(-5px, 2px) rotate(-.3deg); }
+    60%     { transform: translate(4px, -2px) rotate(.2deg); }
+    75%     { transform: translate(-2px, 1px); }
 }
 
 /* ======================== Эффекты хода (Фаза 5) ======================== */
@@ -1519,7 +1586,8 @@ body.theme-light {
     color: #0d3b5e;
 }
 body.theme-light .container {
-    background: linear-gradient(180deg, #eafafd 0%, #cdeef5 100%);
+    /* Прозрачный фон: «живой океан» (canvas-атмосфера) виден сквозь контейнер */
+    background: transparent;
     border-color: #00b8d4;
     box-shadow: 0 20px 40px rgba(0,0,0,.25), inset 0 0 20px rgba(0,184,212,.2);
 }
@@ -1607,6 +1675,14 @@ body.theme-light .achievement        { background: rgba(0,0,0,.05); }
     90%  { opacity: var(--bo, .55); }
     100% { transform: translate3d(var(--sway, 30px), -110vh, 0); opacity: 0; }
 }
+
+/* Пузырьки-фон окрашиваются под тему (по умолчанию — белые, как в «Лагуне») */
+body.theme-light  .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.6), rgba(0,184,212,.12) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(0,184,212,.25); }
+body.theme-autumn .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(255,220,160,.5), rgba(217,138,43,.14) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(255,190,90,.3); }
+body.theme-forest .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(190,255,210,.45), rgba(60,160,100,.14) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(120,255,180,.28); }
+body.theme-sunset .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(255,210,180,.5), rgba(255,120,90,.14) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(255,170,120,.3); }
+body.theme-abyss  .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(190,240,255,.45), rgba(0,120,200,.14) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(0,180,255,.3); }
+body.theme-sakura .bubbles .bub { background: radial-gradient(circle at 30% 30%, rgba(255,215,240,.5), rgba(255,120,190,.14) 60%, transparent 70%); box-shadow: inset 0 0 8px rgba(255,160,210,.3); }
 
 /* ==================================================================
    КОНФЕТТИ (победа / достижения)
@@ -2146,6 +2222,103 @@ body.reduce-motion .particles-layer { display: none; }
 body.reduce-motion .atmosphere-layer { display: none; }
 /* Осенние листья отключаются при reduce-motion (доступность) */
 body.reduce-motion .autumn-layer { display: none; }
+/* Атака акулы при проигрыше (часть B) отключается при reduce-motion */
+body.reduce-motion .shark-attack-layer { display: none !important; }
+
+/* ==================================================================
+   АТАКА АКУЛЫ ПРИ ПРОИГРЫШЕ (часть B): киношный «укус» с пастью
+   на весь экран. Оверлей поверх доски (z-index 5000), под модалкой.
+   ================================================================== */
+.shark-attack-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    pointer-events: none;
+    overflow: hidden;
+    display: none;
+}
+.shark-attack-layer.active {
+    display: block;
+}
+.shark-attack-layer canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+/* Тёмная виньетка-затемнение вокруг сцены для драматизма */
+.shark-attack-layer .sa-vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,.55) 100%);
+    opacity: 0;
+    transition: opacity .3s ease;
+}
+.shark-attack-layer.active .sa-vignette { opacity: 1; }
+
+/* Клоны плиток, «втягиваемые» в пасть */
+.shark-attack-layer .sa-tile {
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 2;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    line-height: 1;
+    border-radius: 8px;
+    will-change: transform, opacity;
+    transition: transform .5s cubic-bezier(.5,-.2,.7,.4), opacity .5s ease;
+}
+.shark-attack-layer .sa-tile .tile-glyph {
+    font-size: 1.5em;
+    line-height: 1;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.45));
+    pointer-events: none;
+}
+.shark-attack-layer .sa-tile .tile-num {
+    font-size: .8em;
+    font-weight: bold;
+    text-shadow: 1px 1px 3px rgba(0,0,0,.5);
+    opacity: .92;
+    letter-spacing: .5px;
+}
+/* Вспышка при захлопывании пасти */
+.shark-attack-layer .sa-flash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(255,255,255,.9), rgba(255,255,255,0) 60%);
+    opacity: 0;
+    pointer-events: none;
+}
+.shark-attack-layer .sa-flash.go { animation: sa-flash .35s ease-out forwards; }
+@keyframes sa-flash {
+    0%   { opacity: 0; }
+    30%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* ==================================================================
+   ЗРЕЛИЩНЫЕ ВИЗУАЛИЗАЦИИ СОБЫТИЙ И МЕХАНИК (эффекты)
+   Единый canvas-оверлей поверх доски (z-index 5000), под модалкой.
+   Создаётся из JS (js/effects.js + js/main.js), как и слой акулы.
+   ================================================================== */
+.effect-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    pointer-events: none;
+    overflow: hidden;
+    display: none;
+}
+.effect-layer.active {
+    display: block;
+}
+.effect-layer canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+body.reduce-motion .effect-layer { display: none !important; }
 
 /* ==================================================================
    ФАЗА 5 «Полировка»: доступность (скорость анимаций, крупный текст)
@@ -2437,6 +2610,70 @@ body.theme-light .threat-count     { color: #6a1b9a; }
 }
 body.theme-light .shark-indicator { background: linear-gradient(90deg, #fde0e0, #f8cccc); border-color: #e53935; }
 body.theme-light .shark-count     { color: #b71c1c; }
+
+/* ==================================================================
+   ИНДИКАТОР «ПРИЛИВ И ОТЛИВ» (Фаза 5.5 «Глубина ядра»)
+   Периодическая смена фаз: прилив (все плитки ×2) и отлив (все плитки ÷2,
+   но не ниже 2). Показывает, какая фаза наступит следующей и через сколько
+   ходов. Плитки-способности ⚡ при этом не меняются.
+   ================================================================== */
+.ebbtide-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 500px;
+    margin: 0 auto 8px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, rgba(9,60,70,.9), rgba(14,80,95,.85));
+    border: 1px solid rgba(120,230,255,.3);
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+.ebbtide-emoji { font-size: 1.05rem; }
+.ebbtide-label { white-space: nowrap; font-weight: bold; }
+.ebbtide-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.12);
+    overflow: hidden;
+}
+.ebbtide-bar-fill {
+    display: block;
+    height: 100%;
+    width: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #4af7ff, #26c6da);
+    transition: width .3s ease;
+}
+.ebbtide-count {
+    min-width: 30px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: bold;
+    color: #d6f6ff;
+}
+/* Фаза «отлив» (значения падают) — холодный/нисходящий оттенок */
+.ebbtide-indicator.ebb .ebbtide-bar-fill { background: linear-gradient(90deg, #80deea, #4dd0e1); }
+.ebbtide-indicator.ebb .ebbtide-count   { color: #b2ebf2; }
+/* Фаза «прилив» (значения растут) — тёплый/восходящий оттенок */
+.ebbtide-indicator.flow .ebbtide-bar-fill { background: linear-gradient(90deg, #4af7ff, #00e5ff); }
+.ebbtide-indicator.flow .ebbtide-count   { color: #e0faff; }
+/* Смена фазы почти наступила — тревожный оттенок */
+.ebbtide-indicator.warning .ebbtide-bar-fill { background: linear-gradient(90deg, #ffd740, #ff8a6b); }
+.ebbtide-indicator.warning .ebbtide-count   { color: #ffd740; }
+/* Вспышка в момент смены фазы (добавляется классом на время анимации) */
+.ebbtide-indicator.sweep { animation: ebbtide-sweep .7s ease; }
+.ebbtide-indicator[hidden] { display: none; }
+@keyframes ebbtide-sweep {
+    0%   { border-color: rgba(120,230,255,.3); }
+    30%  { border-color: rgba(255,215,0,.9); box-shadow: 0 0 14px rgba(255,215,0,.5); }
+    100% { border-color: rgba(120,230,255,.3); }
+}
+body.theme-light .ebbtide-indicator { background: linear-gradient(90deg, #d4f4f7, #c2ecf0); border-color: #00acc1; }
+body.theme-light .ebbtide-count     { color: #006064; }
 
 /* ==================================================================
    Режим «Челлендж» ⏱️ (Фаза 3): «N ходов на цель»
@@ -2773,7 +3010,8 @@ body.theme-forest {
     background: linear-gradient(135deg, #0e2a1a 0%, #1c4a2c 100%);
 }
 body.theme-forest .container {
-    background: linear-gradient(180deg, #1d3a26 0%, #2a5236 100%);
+    /* Прозрачный фон: «живой океан» (canvas-атмосфера) виден сквозь контейнер */
+    background: transparent;
     border-color: #4c8f3e;
     box-shadow: 0 20px 40px rgba(0,0,0,.6), inset 0 0 20px rgba(76,143,62,.15);
 }
@@ -2820,7 +3058,8 @@ body.theme-sunset {
     background: linear-gradient(135deg, #4a1f3d 0%, #8b3a4e 100%);
 }
 body.theme-sunset .container {
-    background: linear-gradient(180deg, #5b2647 0%, #7a3550 100%);
+    /* Прозрачный фон: «живой океан» (canvas-атмосфера) виден сквозь контейнер */
+    background: transparent;
     border-color: #e89a6b;
     box-shadow: 0 20px 40px rgba(0,0,0,.6), inset 0 0 20px rgba(232,154,107,.15);
 }
@@ -2867,7 +3106,8 @@ body.theme-abyss {
     background: linear-gradient(135deg, #050b18 0%, #0b1f3a 100%);
 }
 body.theme-abyss .container {
-    background: linear-gradient(180deg, #081426 0%, #0d2138 100%);
+    /* Прозрачный фон: «живой океан» (canvas-атмосфера) виден сквозь контейнер */
+    background: transparent;
     border-color: #1f6f9e;
     box-shadow: 0 20px 40px rgba(0,0,0,.7), inset 0 0 24px rgba(31,111,158,.2);
 }
@@ -2930,7 +3170,8 @@ body.theme-autumn {
     background: linear-gradient(135deg, #2a1606 0%, #6b3a1f 100%);
 }
 body.theme-autumn .container {
-    background: linear-gradient(180deg, #3a2410 0%, #6b3a1f 100%);
+    /* Прозрачный фон: «живой океан» (canvas-атмосфера) виден сквозь контейнер */
+    background: transparent;
 }
 body.theme-autumn header { border-bottom-color: #d98a2b; }
 

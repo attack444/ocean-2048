@@ -2013,4 +2013,259 @@ describe('Game random events (случайные события 🎲)', () => {
         assert.equal(g.eventActive, false);
     });
 });
+
+describe('Game ebb and flow (прилив и отлив 🌊↔️)', () => {
+    function makeEbbtideGame(opts = {}) {
+        const board = stubBoard();
+        const addTile = Game.prototype._addNewTile;
+        const render = Game.prototype.render;
+        const animate = Game.prototype._animateMove;
+        Game.prototype._addNewTile = function () {};
+        Game.prototype.render = function () {};
+        Game.prototype._animateMove = function (moves, cb) { cb(); };
+        const game = new Game({
+            boardElement: board,
+            size: opts.size || 4,
+            target: opts.target || 2048,
+            tide: null,
+            moves: null,
+            shark: null,
+            abilities: null,
+            events: null,
+            ebbtide: Object.assign(
+                opts.noEnabled
+                    ? { interval: 12, startPhase: 'flow' }
+                    : { enabled: true, interval: 12, startPhase: 'flow' },
+                opts.ebbtide
+            ),
+            onEbbtide: opts.onEbbtide || null,
+            random: opts.random,
+        });
+        Game.prototype._addNewTile = addTile;
+        Game.prototype.render = render;
+        Game.prototype._animateMove = animate;
+        game.tiles = new Array(game.size * game.size).fill(null);
+        game.score = 0;
+        return game;
+    }
+
+    // Готовим игру к синхронному handleMove: без спавна плиток, анимации и рендера.
+    function readyForMove(g) {
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+    }
+
+    it('is disabled when no ebbtide config is passed', () => {
+        const g = makeGame();
+        assert.equal(g.getEbbtide(), null);
+        g.ebbtideMovesUntilFlip = 5;
+        g._tickEbbtide();
+        assert.equal(g.ebbtideMovesUntilFlip, 5); // отсчёт не идёт
+        assert.equal(g.ebbtideEvents, 0);
+    });
+
+    it('activates from a level-style config without an explicit enabled flag (regression)', () => {
+        // Уровневые конфиги (levels.js) не содержат `enabled: true` — механика
+        // должна включаться по самому факту наличия конфига (как и остальные).
+        const g = makeEbbtideGame({ noEnabled: true, ebbtide: { interval: 3 } });
+        const s = g.getEbbtide();
+        assert.ok(s, 'ebbtide должен быть включён без явного enabled');
+        assert.equal(s.interval, 3);
+        assert.equal(s.phase, 'flow');
+    });
+
+    it('normalizes the config and reports state for the UI', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 1 } });
+        const s = g.getEbbtide();
+        assert.equal(s.enabled, true);
+        assert.equal(s.interval, 3);       // минимум 3
+        assert.equal(s.movesUntilFlip, 3); // init ставит interval
+        assert.equal(s.phase, 'flow');     // по умолчанию прилив
+        assert.equal(s.events, 0);
+    });
+
+    it('honours an explicit ebb start phase', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 4, startPhase: 'ebb' } });
+        assert.equal(g.getEbbtide().phase, 'ebb');
+        assert.equal(g.ebbtide.startPhase, 'ebb');
+    });
+
+    it('counts down each move and flips the phase after the interval', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        readyForMove(g);
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        // Первый ход: 3 -> 2 (смены нет)
+        g.handleMove('right');
+        assert.equal(g.ebbtideMovesUntilFlip, 2);
+        assert.equal(g.ebbtideEvents, 0);
+        // Второй ход: 2 -> 1
+        g.handleMove('left');
+        assert.equal(g.ebbtideMovesUntilFlip, 1);
+        assert.equal(g.ebbtideEvents, 0);
+        // Третий ход: 1 -> 0 -> смена фазы, отсчёт сбрасывается на interval
+        g.handleMove('right');
+        assert.equal(g.ebbtideMovesUntilFlip, 3);
+        assert.equal(g.ebbtideEvents, 1);
+    });
+
+    it('flow phase doubles all non-ability tiles', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 8 }, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.ebbtideMovesUntilFlip = 1; // чтобы _tickEbbtide сработал сразу
+        g.ebbtidePhase = 'flow';
+        g._tickEbbtide();
+        assert.equal(g.ebbtideEvents, 1);
+        assert.equal(g.tiles[0].value, 4);
+        assert.equal(g.tiles[1].value, 8);
+        assert.equal(g.tiles[2].value, 16);
+        assert.equal(g.ebbtidePhase, 'ebb'); // фаза переключилась на отлив
+    });
+
+    it('ebb phase halves tiles (floor) but never below 2', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 5 }, { id: 3, value: 8 }, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.ebbtideMovesUntilFlip = 1; // чтобы _tickEbbtide сработал сразу
+        g.ebbtidePhase = 'ebb';
+        g._tickEbbtide();
+        assert.equal(g.ebbtideEvents, 1);
+        assert.equal(g.tiles[0].value, 2); // 2/2=1 -> min 2
+        assert.equal(g.tiles[1].value, 2); // floor(5/2)=2
+        assert.equal(g.tiles[2].value, 4); // 8/2=4
+        assert.equal(g.ebbtidePhase, 'flow'); // фаза переключилась на прилив
+    });
+
+    it('skips ability tiles during both phases', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4, ability: 'bomb' }, { id: 3, value: 8 }, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.ebbtideMovesUntilFlip = 1;
+        g.ebbtidePhase = 'flow';
+        g._tickEbbtide();
+        assert.equal(g.tiles[0].value, 4);          // обычная удвоена
+        assert.equal(g.tiles[1].value, 4);          // способность не тронута
+        assert.equal(g.tiles[1].ability, 'bomb');
+        assert.equal(g.tiles[2].value, 16);         // обычная удвоена
+    });
+
+    it('alternates flow -> ebb -> flow across successive flips', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.ebbtideMovesUntilFlip = 1;
+        g._tickEbbtide(); // flow применяется
+        assert.equal(g.ebbtidePhase, 'ebb');
+        assert.equal(g.tiles[0].value, 4);
+        g.ebbtideMovesUntilFlip = 1;
+        g._tickEbbtide(); // ebb применяется
+        assert.equal(g.ebbtidePhase, 'flow');
+        assert.equal(g.tiles[0].value, 2);
+        g.ebbtideMovesUntilFlip = 1;
+        g._tickEbbtide(); // flow применяется снова
+        assert.equal(g.ebbtidePhase, 'ebb');
+        assert.equal(g.tiles[0].value, 4);
+        assert.equal(g.ebbtideEvents, 3);
+    });
+
+    it('invokes onEbbtide callback with the applied phase and changed count', () => {
+        let calls = [];
+        const g = makeEbbtideGame({
+            ebbtide: { interval: 3 },
+            onEbbtide: (info) => calls.push(info),
+        });
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.ebbtideMovesUntilFlip = 1;
+        g.ebbtidePhase = 'flow';
+        g._tickEbbtide();
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].phase, 'flow');
+        assert.equal(calls[0].changed, 2);
+    });
+
+    it('undo restores ebbtide counters and phase', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 3 } });
+        readyForMove(g);
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('right'); // 3 -> 2
+        assert.equal(g.ebbtideMovesUntilFlip, 2);
+        g.undo();
+        assert.equal(g.ebbtideMovesUntilFlip, 3); // восстановлено из prev
+        assert.equal(g.ebbtideEvents, 0);
+        assert.equal(g.ebbtideActive, false);
+    });
+
+    it('init resets the ebbtide counters', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 5 } });
+        g.ebbtideEvents = 7;
+        g.ebbtideMovesUntilFlip = 1;
+        g.ebbtideActive = true;
+        g.ebbtidePhase = 'ebb';
+        g.render = () => {};
+        g.init();
+        assert.equal(g.ebbtideEvents, 0);
+        assert.equal(g.ebbtideMovesUntilFlip, 5);
+        assert.equal(g.ebbtideActive, false);
+        assert.equal(g.ebbtidePhase, 'flow'); // сброс к стартовой фазе
+    });
+
+    it('getState/loadState round-trips the ebbtide counters', () => {
+        const g = makeEbbtideGame({ ebbtide: { interval: 4 } });
+        g.ebbtideEvents = 3;
+        g.ebbtideMovesUntilFlip = 2;
+        g.ebbtidePhase = 'ebb';
+        const state = g.getState();
+        assert.equal(state.ebbtideMovesUntilFlip, 2);
+        assert.equal(state.ebbtideEvents, 3);
+        assert.equal(state.ebbtidePhase, 'ebb');
+
+        const g2 = makeEbbtideGame({ ebbtide: { interval: 4 } });
+        g2.render = () => {};
+        g2.loadState(state);
+        assert.equal(g2.ebbtideMovesUntilFlip, 2);
+        assert.equal(g2.ebbtideEvents, 3);
+        assert.equal(g2.ebbtidePhase, 'ebb');
+        assert.equal(g2.ebbtideActive, false);
+    });
+
+    it('does not flip when ebbtide is disabled (regression)', () => {
+        const g = makeGame();
+        g.ebbtideMovesUntilFlip = 0;
+        g._tickEbbtide();
+        assert.equal(g.ebbtideEvents, 0);
+        assert.equal(g.ebbtideActive, false);
+    });
+});
 });

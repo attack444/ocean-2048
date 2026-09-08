@@ -19,6 +19,8 @@
 export const THEME_KEYS = ['dark', 'light', 'autumn', 'forest', 'sunset', 'abyss', 'sakura'];
 
 export const THEMES = {
+    // ── Лагуна (тёмная): коралловый риф ──
+    // Фишка: стайки рыб + пузырьки + коралловый риф и водоросли у дна.
     dark: {
         label: 'Лагуна',
         sky: ['#062c44', '#0b4b6f'],        // тёмная вода, свет сверху
@@ -27,19 +29,33 @@ export const THEMES = {
         fishColor: 'rgba(20,60,85,.6)',
         plankton: 'rgba(180,220,255,.4)',
         bubble: 'rgba(255,255,255,.22)',
-        // Глубина океана: стайки рыб, планктон, лучи
-        fishCount: 8, planktonCount: 40, rayCount: 5, bubbleCount: 10,
+        shimmer: 'rgba(190,235,255,.8)',    // светящиеся пылинки света
+        glow: 'rgba(120,210,255,.10)',      // мягкое «дыхание» света сверху
+        kelp: 'rgba(40,170,150,.55)',       // бирюзовые водоросли
+        coral: ['rgba(255,120,150,.75)', 'rgba(255,170,90,.7)', 'rgba(120,200,255,.7)'], // риф
+        fishCount: 8, planktonCount: 40, rayCount: 5, bubbleCount: 10, shimmerCount: 26,
+        kelpCount: 6, coralCount: 7,
+        shark: { alpha: 0.10, scale: 0.55, chance: 0.0006, tint: 'rgba(90,140,170,1)', belly: 'rgba(205,225,235,1)' },
     },
+
+    // ── Лагуна светлая: яркий мелкий риф ──
+    // Фишка: много рыбок + пузырьки-«искры» у поверхности.
     light: {
-        label: 'Лагуна',
+        label: 'Лагуна светлая',
         sky: ['#a8dce6', '#d7f2f7'],        // светлая вода
         water: ['rgba(255,255,255,.0)', 'rgba(0,184,212,.08)'],
         rayColor: 'rgba(255,255,255,.3)',
         fishColor: 'rgba(0,120,160,.5)',
         plankton: 'rgba(0,140,170,.3)',
         bubble: 'rgba(255,255,255,.5)',
-        fishCount: 12, planktonCount: 30, rayCount: 7, bubbleCount: 8,
+        shimmer: 'rgba(255,255,255,.9)',
+        glow: 'rgba(255,255,255,.16)',
+        fishCount: 12, planktonCount: 30, rayCount: 7, bubbleCount: 8, shimmerCount: 30,
+        shark: { alpha: 0.14, scale: 0.5, chance: 0.0007, tint: 'rgba(60,120,150,1)', belly: 'rgba(230,240,245,1)' },
     },
+
+    // ── Осень: тёплый листопад у камышового берега ──
+    // Фишка: падающие листья + золотистые светлячки + камыш/рогоз у дна. Без пузырей.
     autumn: {
         label: 'Осень',
         sky: ['#7a3b12', '#c96f2a'],        // тёплая вода
@@ -49,8 +65,18 @@ export const THEMES = {
         plankton: 'rgba(255,200,120,.35)',
         bubble: 'rgba(255,220,170,.3)',
         leafEmojis: ['🍁', '🍂', '🍃'],     // осенние листья в «живом океане»
-        fishCount: 7, planktonCount: 35, rayCount: 6, bubbleCount: 6,
+        shimmer: 'rgba(255,220,150,.85)',   // тёплые золотистые искры
+        glow: 'rgba(255,180,90,.12)',
+        fireflies: 'rgba(255,214,120,.9)',  // золотистые светлячки
+        kelp: 'rgba(190,120,50,.6)',        // янтарный камыш
+        kelpHeads: true,                    // рисовать «рогоз» (шишки) на верхушках
+        fishCount: 0, planktonCount: 30, rayCount: 5, bubbleCount: 0, shimmerCount: 18,
+        fireflyCount: 16, kelpCount: 8,
+        shark: { alpha: 0.10, scale: 0.55, chance: 0.0006, tint: 'rgba(120,90,50,1)', belly: 'rgba(220,190,150,1)' },
     },
+
+    // ── Затонувший лес: зелёная чаща сквозь кроны ──
+    // Фишка: густые колышущиеся водоросли + изумрудные светлячки. Без пузырей.
     forest: {
         label: 'Затонувший лес',
         sky: ['#1b4d3a', '#0e2b1f'],        // тёмная зелёная вода
@@ -59,8 +85,17 @@ export const THEMES = {
         fishColor: 'rgba(30,90,60,.7)',
         plankton: 'rgba(140,255,180,.3)',
         bubble: 'rgba(180,255,200,.25)',
-        fishCount: 9, planktonCount: 45, rayCount: 8, bubbleCount: 10,
+        shimmer: 'rgba(180,255,210,.85)',   // изумрудные светлячки
+        glow: 'rgba(120,255,180,.10)',
+        kelp: 'rgba(60,190,120,.6)',        // водоросли
+        fireflies: 'rgba(140,255,180,.9)',  // изумрудные светлячки
+        fishCount: 4, planktonCount: 30, rayCount: 7, bubbleCount: 0, shimmerCount: 16,
+        kelpCount: 10, fireflyCount: 18,
+        shark: { alpha: 0.10, scale: 0.55, chance: 0.0006, tint: 'rgba(60,110,80,1)', belly: 'rgba(180,210,190,1)' },
     },
+
+    // ── Закат: романтика, светящиеся медузы ──
+    // Фишка: стайка медуз. Без рыб и пузырей.
     sunset: {
         label: 'Закат',
         sky: ['#4a1a4e', '#d44a3a'],        // розово-оранжевая вода
@@ -69,8 +104,15 @@ export const THEMES = {
         fishColor: 'rgba(150,50,80,.6)',
         plankton: 'rgba(255,200,180,.4)',
         bubble: 'rgba(255,200,180,.3)',
-        fishCount: 6, planktonCount: 30, rayCount: 7, bubbleCount: 7,
+        shimmer: 'rgba(255,220,180,.9)',    // тёплые закатные искры
+        glow: 'rgba(255,150,110,.14)',
+        fishCount: 0, planktonCount: 26, rayCount: 6, bubbleCount: 0, shimmerCount: 22,
+        jellyCount: 5,
+        shark: { alpha: 0.10, scale: 0.55, chance: 0.0006, tint: 'rgba(150,80,90,1)', belly: 'rgba(230,190,190,1)' },
     },
+
+    // ── Бездна: биолюминесценция ──
+    // Фишка: светящиеся точки-«удильщики» + глубокие лучи. Без пузырей.
     abyss: {
         label: 'Бездна',
         sky: ['#04101f', '#0a2a3f'],        // самая глубина
@@ -79,8 +121,16 @@ export const THEMES = {
         fishColor: 'rgba(10,40,60,.5)',
         plankton: 'rgba(120,220,255,.5)',
         bubble: 'rgba(180,240,255,.3)',
-        fishCount: 5, planktonCount: 55, rayCount: 4, bubbleCount: 9,
+        shimmer: 'rgba(150,230,255,.9)',    // холодные биолюминесцентные точки
+        glow: 'rgba(0,160,255,.08)',
+        anglers: 'rgba(120,230,255,.9)',    // биолюминесцентные «удильщики»
+        fishCount: 0, planktonCount: 50, rayCount: 4, bubbleCount: 0, shimmerCount: 30,
+        anglerCount: 6,
+        shark: { alpha: 0.08, scale: 0.6, chance: 0.0005, tint: 'rgba(40,80,110,1)', belly: 'rgba(140,180,200,1)' },
     },
+
+    // ── Сакура: нежность, лепестки ──
+    // Фишка: лепестки + светящиеся медузы. Без рыб и пузырей.
     sakura: {
         label: 'Сакура',
         sky: ['#5c2a5e', '#b45a8c'],        // розовая вода
@@ -89,13 +139,18 @@ export const THEMES = {
         fishColor: 'rgba(160,70,110,.6)',
         plankton: 'rgba(255,190,220,.4)',
         bubble: 'rgba(255,220,240,.3)',
-        fishCount: 8, planktonCount: 38, rayCount: 6, bubbleCount: 8,
+        shimmer: 'rgba(255,210,235,.9)',    // розовые искры
+        glow: 'rgba(255,150,200,.12)',
+        fishCount: 0, planktonCount: 30, rayCount: 5, bubbleCount: 0, shimmerCount: 22,
+        jellyCount: 3,
+        shark: { alpha: 0.10, scale: 0.55, chance: 0.0006, tint: 'rgba(150,90,120,1)', belly: 'rgba(230,200,215,1)' },
     },
 };
 
 // Лимиты частиц (снижаем на маленьких экранах / low-end)
 export const DENSITY_LIMITS = {
-    fish: 14, plankton: 60, ray: 10, bubble: 16,
+    fish: 14, plankton: 60, ray: 10, bubble: 16, shimmer: 40,
+    kelp: 14, firefly: 30, angler: 10, jelly: 6, coral: 12,
 };
 
 // ------------------------------------------------------------------
@@ -138,14 +193,16 @@ export function atmosphereConfigFor(theme, size = 'desktop', opts = {}) {
     const base = { ...THEMES[key] };
     // Плотность зависит от размера экрана
     const mult = size === 'mobile' ? 0.6 : size === 'tablet' ? 0.8 : 1;
-    base.fishCount = Math.round((base.fishCount || 0) * mult);
-    base.planktonCount = Math.round((base.planktonCount || 0) * mult);
-    base.rayCount = Math.round((base.rayCount || 0) * mult);
-    base.bubbleCount = Math.round((base.bubbleCount || 0) * mult);
+    // Все счётчики частиц масштабируются по размеру экрана
+    const countKeys = ['fishCount', 'planktonCount', 'rayCount', 'bubbleCount', 'shimmerCount',
+                       'kelpCount', 'fireflyCount', 'anglerCount', 'jellyCount', 'coralCount'];
+    countKeys.forEach(k => {
+        base[k] = Math.round((base[k] || 0) * mult);
+    });
     // Применяем лимиты
-    ['fishCount', 'planktonCount', 'rayCount', 'bubbleCount'].forEach(k => {
+    countKeys.forEach(k => {
         const limit = DENSITY_LIMITS[k.replace('Count', '')];
-        base[k] = Math.min(base[k], limit);
+        if (limit != null) base[k] = Math.min(base[k], limit);
     });
     // Переопределения (например, от геймплея)
     if (opts.intensity != null) base.intensity = clamp(opts.intensity);
@@ -255,6 +312,97 @@ export function makeShimmer(cfg, w, h, rng = Math.random) {
     };
 }
 
+/** Создать водоросль/лозу (для «Затонувшего леса»): вертикальная лента, качается у дна. */
+export function makeKelp(cfg, w, h, rng = Math.random) {
+    const side = rng() > 0.5 ? 1 : -1;          // слева или справа
+    return {
+        x: side === 1 ? rng() * w * 0.18 : w - rng() * w * 0.18,
+        y: h + 10,                               // растёт от низа
+        height: h * (0.25 + rng() * 0.45),       // высота ленты
+        width: 10 + rng() * 22,                  // толщина
+        lean: (rng() * 40 - 20),                 // наклон в сторону
+        phase: rng() * Math.PI * 2,
+        speed: 0.4 + rng() * 0.7,                // скорость покачивания
+        swayAmp: 8 + rng() * 18,                 // амплитуда качания
+        alpha: 0.35 + rng() * 0.4,
+        segments: 5 + Math.floor(rng() * 4),
+    };
+}
+
+/** Создать коралл (для «Лагуны»): ветвящийся куст у дна, мягко покачивается. */
+export function makeCoral(cfg, w, h, rng = Math.random) {
+    const palette = Array.isArray(cfg?.coral) && cfg.coral.length ? cfg.coral : ['rgba(255,120,150,.7)'];
+    return {
+        x: rng() * w,                            // по всему дну
+        y: h + 6,                                // растёт от низа
+        height: h * (0.08 + rng() * 0.16),       // невысокий куст
+        width: 20 + rng() * 34,                  // размах ветвей
+        branches: 3 + Math.floor(rng() * 3),     // число ветвей
+        color: palette[Math.floor(rng() * palette.length)],
+        phase: rng() * Math.PI * 2,
+        speed: 0.3 + rng() * 0.5,                // медленное покачивание
+        swayAmp: 3 + rng() * 6,
+        alpha: 0.6 + rng() * 0.35,
+        tipR: 3 + rng() * 4,                     // размер округлой верхушки
+    };
+}
+
+/** Создать светлячка (для «Осени»/«Леса»): вспыхивает и гаснет с паузой. */
+export function makeFirefly(cfg, w, h, rng = Math.random) {
+    return {
+        x: rng() * w,
+        y: rng() * h,
+        r: 1.2 + rng() * 2.2,
+        phase: rng() * Math.PI * 2,
+        speed: 0.4 + rng() * 0.9,                // скорость мерцания
+        drift: (rng() * 30 - 15),
+        driftSpeed: 0.2 + rng() * 0.5,
+        alpha: 0.5 + rng() * 0.4,
+        // «вспышка с паузой»: период и доля активной фазы
+        period: 2 + rng() * 3,
+        duty: 0.3 + rng() * 0.4,
+    };
+}
+
+/** Создать биолюминесцентную точку-«удильщика» (для «Бездны»): крупная, с ореолом. */
+export function makeAngler(cfg, w, h, rng = Math.random) {
+    return {
+        x: rng() * w,
+        y: rng() * h,
+        r: 3 + rng() * 4,
+        phase: rng() * Math.PI * 2,
+        speed: 0.5 + rng() * 1,
+        drift: (rng() * 24 - 12),
+        driftSpeed: 0.15 + rng() * 0.4,
+        alpha: 0.5 + rng() * 0.4,
+        period: 2.5 + rng() * 3,
+        duty: 0.4 + rng() * 0.3,
+    };
+}
+
+/**
+ * Создать фоновую акулу (для «живого океана»): редкий силуэт, проплывающий
+ * горизонтально в толще воды. Невзрачный (низкая alpha), не перекрывает геймплей.
+ */
+export function makeShark(cfg, w, h, rng = Math.random) {
+    const sc = cfg?.shark || { alpha: 0.1, scale: 0.55, chance: 0.0006, tint: 'rgba(90,140,170,1)', belly: 'rgba(205,225,235,1)' };
+    const fromLeft = rng() > 0.5;
+    return {
+        x: fromLeft ? -0.25 * w : 1.25 * w,       // старт за экраном
+        y: h * (0.12 + rng() * 0.5),              // средняя глубина
+        dir: fromLeft ? 1 : -1,                   // направление движения
+        speed: w * (0.05 + rng() * 0.06),         // px/сек
+        scale: sc.scale * (0.8 + rng() * 0.5),    // размер относительно высоты
+        alpha: sc.alpha * (0.7 + rng() * 0.6),    // непрозрачность
+        tint: sc.tint,
+        belly: sc.belly,
+        phase: rng() * Math.PI * 2,               // фаза волны хвоста
+        bob: rng() * Math.PI * 2,                 // фаза вертикального покачивания
+        bobSpeed: 0.6 + rng() * 0.5,
+        gone: false,
+    };
+}
+
 /**
  * Всплеск частиц в точке (при слиянии / событии).
  * Возвращает массив частиц для добавления в слой.
@@ -313,6 +461,25 @@ export function stepParticle(p, dt, w, h) {
         p.y -= p.speed * dt;
         p.x += Math.sin(t * p.bobSpeed + p.bob) * 0.3 * dt * 60;
         return p.y > -60;
+    }
+    // Светлячок / «удильщик»: медленный дрейф + мерцание с паузой
+    if (p.drift != null && p.driftSpeed != null && p.period != null) {
+        p.x += Math.sin(t * p.driftSpeed + p.phase) * p.drift * dt;
+        p.y += Math.cos(t * p.driftSpeed * 0.7 + p.phase) * p.drift * 0.5 * dt;
+        // мягко возвращаем в пределы экрана
+        if (p.x < -20) p.x = w + 20;
+        if (p.x > w + 20) p.x = -20;
+        if (p.y < -20) p.y = h + 20;
+        if (p.y > h + 20) p.y = -20;
+        return true;
+    }
+    // Водоросль/лоза: закреплена у дна, только покачивается — всегда на экране
+    if (p.height != null && p.swayAmp != null && p.segments != null) {
+        return true;
+    }
+    // Коралл: закреплён у дна, только покачивается — всегда на экране
+    if (p.height != null && p.swayAmp != null && p.branches != null) {
+        return true;
     }
     // Световой луч / блик — без движения
     return true;
@@ -380,7 +547,13 @@ export class OceanAtmosphere {
         this.rays = [];
         this.jellies = [];
         this.leaves = [];
+        this.shimmers = [];
+        this.kelp = [];
+        this.coral = [];
+        this.fireflies = [];
+        this.anglers = [];
         this.bursts = [];
+        this.sharks = [];
         this.w = window.innerWidth;
         this.h = window.innerHeight;
         this.rafId = 0;
@@ -399,31 +572,52 @@ export class OceanAtmosphere {
         }
     }
 
-    /** Выбрать тему и пересоздать обитателей. */
+    /** Выбрать тему и пересоздать обитателей (декларативно, по счётчикам конфига). */
     setTheme(theme, size = 'desktop') {
         if (THEMES[theme]) this.theme = theme;
         const cfg = atmosphereConfigFor(this.theme, size);
         this.cfg = cfg;
         const rng = Math.random;
+        // Сбрасываем все слои
         this.fish = [];
         this.plankton = [];
         this.bubbles = [];
         this.rays = [];
         this.jellies = [];
         this.leaves = [];
+        this.shimmers = [];
+        this.kelp = [];
+        this.coral = [];
+        this.fireflies = [];
+        this.anglers = [];
+        this.sharks = [];
+        // Каждый слой включается только если его счётчик > 0 — так у тем
+        // появляется собственная «сигнатура» (рыбы/пузыри/медузы/водоросли/кораллы/светлячки/удильщики).
         for (let i = 0; i < cfg.fishCount; i++) this.fish.push(makeFish(cfg, this.w, this.h, rng));
         for (let i = 0; i < cfg.planktonCount; i++) this.plankton.push(makePlankton(cfg, this.w, this.h, rng));
         for (let i = 0; i < cfg.bubbleCount; i++) this.bubbles.push(makeBubble(cfg, this.w, this.h, rng));
         for (let i = 0; i < cfg.rayCount; i++) this.rays.push(makeLightRay(cfg, this.w, this.h, rng));
-        // Медузы — только для темы «Закат» и «Сакура» (светящиеся)
-        if (this.theme === 'sunset' || this.theme === 'sakura') {
-            for (let i = 0; i < 3; i++) this.jellies.push(makeJelly(cfg, this.w, this.h, rng));
-        }
-        // Лепестки/листья — для «Сакура» и «Осень»
-        if (this.theme === 'sakura' || this.theme === 'autumn') {
+        for (let i = 0; i < (cfg.shimmerCount || 0); i++) this.shimmers.push(makeShimmer(cfg, this.w, this.h, rng));
+        for (let i = 0; i < (cfg.jellyCount || 0); i++) this.jellies.push(makeJelly(cfg, this.w, this.h, rng));
+        for (let i = 0; i < (cfg.kelpCount || 0); i++) this.kelp.push(makeKelp(cfg, this.w, this.h, rng));
+        for (let i = 0; i < (cfg.coralCount || 0); i++) this.coral.push(makeCoral(cfg, this.w, this.h, rng));
+        for (let i = 0; i < (cfg.fireflyCount || 0); i++) this.fireflies.push(makeFirefly(cfg, this.w, this.h, rng));
+        for (let i = 0; i < (cfg.anglerCount || 0); i++) this.anglers.push(makeAngler(cfg, this.w, this.h, rng));
+        // Лепестки/листья — для «Сакура» и «Осень» (по эмодзи конфига)
+        if (cfg.leafEmojis) {
             const n = this.theme === 'sakura' ? 12 : 10;
             for (let i = 0; i < n; i++) this.leaves.push(makeLeafParticle(cfg, this.w, this.h, rng));
         }
+        // При reduce-motion анимационный цикл не запускается, поэтому рисуем
+        // один статичный кадр темы сразу — иначе фон не менялся бы между темами
+        // (пользователь видел бы только тёмный фон body для всех тем).
+        if (this.reduceMotion) this.renderStatic();
+    }
+
+    /** Нарисовать один статичный кадр (для reduce-motion / мгновенного отклика). */
+    renderStatic() {
+        if (!this.ctx) return;
+        this.draw(0, performance.now());
     }
 
     /** Геймплей → интенсивность 0..1 (общий темп/насыщенность). */
@@ -502,6 +696,17 @@ export class OceanAtmosphere {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
 
+        // --- «Дыхание» света: мягкое мерцающее свечение сверху (у всех тем) ---
+        if (cfg.glow) {
+            const breathe = 0.6 + 0.4 * Math.sin(t / 2600);
+            const glowA = cfg.glow.replace(/[\d.]+\)$/, `${(0.7 * breathe).toFixed(3)})`);
+            const gg = ctx.createRadialGradient(w * 0.5, -h * 0.15, 0, w * 0.5, -h * 0.15, h * 0.9);
+            gg.addColorStop(0, glowA);
+            gg.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = gg;
+            ctx.fillRect(0, 0, w, h);
+        }
+
         // --- Тревога акулы: тёмный красноватый пульс ---
         const sharkV = mergePulseValue(now, this.pulses.shark, 1.2);
         if (sharkV > 0.01) {
@@ -551,6 +756,23 @@ export class OceanAtmosphere {
         }
         ctx.globalAlpha = 1;
 
+        // --- Фоновая акула (редкий силуэт в толще воды) ---
+        if (cfg.shark && !this.reduceMotion) {
+            // Редкий спавн: не чаще одной акулы одновременно
+            if (this.sharks.length === 0 && Math.random() < cfg.shark.chance * dt * 60) {
+                this.sharks.push(makeShark(cfg, w, h));
+            }
+            for (let i = this.sharks.length - 1; i >= 0; i--) {
+                const sh = this.sharks[i];
+                sh.x += sh.dir * sh.speed * dt;
+                if (sh.dir === 1 && sh.x > w + 0.3 * w) { this.sharks.splice(i, 1); continue; }
+                if (sh.dir === -1 && sh.x < -0.3 * w) { this.sharks.splice(i, 1); continue; }
+                const bobY = sh.y + Math.sin(t / 1000 * sh.bobSpeed + sh.bob) * 10;
+                this._drawShark(ctx, sh, bobY, t);
+            }
+            ctx.globalAlpha = 1;
+        }
+
         // --- Планктон ---
         for (const p of this.plankton) {
             stepParticle(p, dt, w, h);
@@ -563,6 +785,26 @@ export class OceanAtmosphere {
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+
+        // --- Светящиеся пылинки (мерцающие «звёздочки» света) ---
+        if (cfg.shimmer) {
+            for (const s of this.shimmers) {
+                const tw = 0.35 + 0.65 * Math.abs(Math.sin(t / 1000 * s.speed + s.phase));
+                ctx.globalAlpha = s.alpha * tw;
+                ctx.fillStyle = cfg.shimmer;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                ctx.fill();
+                // мягкий ореол вокруг ярких точек
+                if (tw > 0.7) {
+                    ctx.globalAlpha = s.alpha * tw * 0.25;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, s.r * 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
 
         // --- Пузыри ---
         for (const b of this.bubbles) {
@@ -642,5 +884,233 @@ export class OceanAtmosphere {
         wg.addColorStop(1, cfg.water[1]);
         ctx.fillStyle = wg;
         ctx.fillRect(0, 0, w, h);
+
+        // --- Водоросли/лозы (сигнатура «Затонувшего леса»): колышутся у дна ---
+        if (cfg.kelp) {
+            for (const k of this.kelp) {
+                stepParticle(k, dt, w, h);
+                const sway = Math.sin(t / 1000 * k.speed + k.phase) * k.swayAmp;
+                ctx.globalAlpha = k.alpha;
+                ctx.strokeStyle = cfg.kelp;
+                ctx.lineWidth = k.width;
+                ctx.lineCap = 'round';
+                const baseX = k.x + k.lean;
+                const segH = k.height / k.segments;
+                ctx.beginPath();
+                ctx.moveTo(baseX, k.y);
+                let px = baseX, py = k.y;
+                for (let s = 1; s <= k.segments; s++) {
+                    const nx = baseX + sway * Math.sin((s / k.segments) * Math.PI);
+                    const ny = k.y - segH * s;
+                    ctx.quadraticCurveTo(px, py - segH * 0.5, nx, ny);
+                    px = nx; py = ny;
+                }
+                ctx.stroke();
+                // узкий светлый блик по центру ленты
+                ctx.globalAlpha = k.alpha * 0.5;
+                ctx.lineWidth = k.width * 0.3;
+                ctx.strokeStyle = 'rgba(255,255,255,.25)';
+                ctx.beginPath();
+                ctx.moveTo(baseX, k.y);
+                px = baseX; py = k.y;
+                for (let s = 1; s <= k.segments; s++) {
+                    const nx = baseX + sway * Math.sin((s / k.segments) * Math.PI);
+                    const ny = k.y - segH * s;
+                    ctx.quadraticCurveTo(px, py - segH * 0.5, nx, ny);
+                    px = nx; py = ny;
+                }
+                ctx.stroke();
+            }
+            // Рогоз/камышовые головки на верхушках (сигнатура «Осени»)
+            if (cfg.kelpHeads) {
+                for (const k of this.kelp) {
+                    const sway = Math.sin(t / 1000 * k.speed + k.phase) * k.swayAmp;
+                    const topX = k.x + k.lean + sway * Math.sin(Math.PI);
+                    const topY = k.y - k.height;
+                    ctx.globalAlpha = Math.min(1, k.alpha * 1.2);
+                    ctx.fillStyle = 'rgba(120,70,30,.85)';
+                    // продолговатая «шишка» рогоза
+                    ctx.beginPath();
+                    ctx.ellipse(topX, topY - k.width * 0.6, k.width * 0.5, k.width * 1.6, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    // светлый кончик
+                    ctx.globalAlpha = Math.min(1, k.alpha * 0.9);
+                    ctx.fillStyle = 'rgba(200,160,90,.7)';
+                    ctx.beginPath();
+                    ctx.ellipse(topX, topY - k.width * 2.0, k.width * 0.28, k.width * 0.7, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // --- Кораллы (сигнатура «Лагуны»): ветвящиеся кусты у дна ---
+        if (cfg.coral) {
+            for (const c of this.coral) {
+                stepParticle(c, dt, w, h);
+                const sway = Math.sin(t / 1000 * c.speed + c.phase) * c.swayAmp;
+                ctx.globalAlpha = c.alpha;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                const baseX = c.x, baseY = c.y;
+                const bh = c.height;
+                // рисуем ветви от основания вверх с лёгким покачиванием
+                for (let b = 0; b < c.branches; b++) {
+                    const ang = -Math.PI / 2 + (b - (c.branches - 1) / 2) * 0.5; // веер вверх
+                    const len = bh * (0.7 + (b % 2) * 0.3);
+                    const tipX = baseX + Math.cos(ang) * len + sway * 0.5;
+                    const tipY = baseY + Math.sin(ang) * len;
+                    ctx.strokeStyle = c.color;
+                    ctx.lineWidth = Math.max(2, c.width * 0.16);
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY);
+                    ctx.quadraticCurveTo(baseX + Math.cos(ang) * len * 0.5 + sway * 0.3,
+                                         baseY + Math.sin(ang) * len * 0.5,
+                                         tipX, tipY);
+                    ctx.stroke();
+                    // округлая светлая верхушка ветви
+                    ctx.globalAlpha = c.alpha * 0.9;
+                    ctx.fillStyle = c.color;
+                    ctx.beginPath();
+                    ctx.arc(tipX, tipY, c.tipR, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = c.alpha;
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // --- Светлячки (сигнатура «Осени»/«Леса»): вспыхивают и гаснут с паузой ---
+        if (cfg.fireflies) {
+            for (const f of this.fireflies) {
+                stepParticle(f, dt, w, h);
+                // «вспышка с паузой»: пилообразный сигнал по периоду и duty
+                const ph = ((t / 1000) % f.period) / f.period;
+                const on = ph < f.duty;
+                const local = on ? ph / f.duty : 0;
+                const glow = on ? Math.sin(local * Math.PI) : 0; // 0..1..0 внутри активной фазы
+                ctx.globalAlpha = f.alpha * (0.15 + 0.85 * glow);
+                ctx.fillStyle = cfg.fireflies;
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+                ctx.fill();
+                // мягкий ореол вокруг вспышки
+                if (glow > 0.3) {
+                    ctx.globalAlpha = f.alpha * glow * 0.35;
+                    ctx.beginPath();
+                    ctx.arc(f.x, f.y, f.r * 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // --- Биолюминесцентные «удильщики» (сигнатура «Бездны»): крупные точки с ореолом ---
+        if (cfg.anglers) {
+            for (const a of this.anglers) {
+                stepParticle(a, dt, w, h);
+                const ph = ((t / 1000) % a.period) / a.period;
+                const on = ph < a.duty;
+                const local = on ? ph / a.duty : 0;
+                const glow = on ? Math.sin(local * Math.PI) : 0;
+                // широкий холодный ореол
+                ctx.globalAlpha = a.alpha * (0.2 + 0.6 * glow);
+                ctx.fillStyle = cfg.anglers;
+                ctx.beginPath();
+                ctx.arc(a.x, a.y, a.r * 5, 0, Math.PI * 2);
+                ctx.fill();
+                // яркое ядро
+                ctx.globalAlpha = a.alpha * (0.4 + 0.6 * glow);
+                ctx.beginPath();
+                ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    /**
+     * Нарисовать реалистичный силуэт акулы в профиль (фоновая, часть A).
+     * Тело-торпеда, спинной плавник, хвост с лопастями, грудной плавник,
+     * светлое брюхо и глаз. Ориентируется по направлению движения (dir).
+     */
+    _drawShark(ctx, sh, y, t) {
+        const w = this.w;
+        const len = Math.max(60, w * 0.16 * sh.scale);   // длина тела
+        const bodyH = len * 0.22;                        // высота тела
+        const dir = sh.dir;
+        // Покачивание хвоста (волна)
+        const tailWag = Math.sin(t / 300 + sh.phase) * 0.35;
+        ctx.save();
+        ctx.translate(sh.x, y);
+        ctx.scale(dir, 1);                               // разворот по направлению
+        ctx.globalAlpha = sh.alpha;
+
+        // --- Хвост (две лопасти) ---
+        ctx.fillStyle = sh.tint;
+        ctx.beginPath();
+        ctx.moveTo(-len * 0.42, 0);
+        ctx.lineTo(-len * 0.62, -bodyH * 0.7 - tailWag * bodyH * 0.4);
+        ctx.lineTo(-len * 0.55, 0);
+        ctx.lineTo(-len * 0.62, bodyH * 0.7 + tailWag * bodyH * 0.4);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Тело (торпеда) ---
+        ctx.beginPath();
+        ctx.moveTo(len * 0.5, 0);                        // нос
+        ctx.quadraticCurveTo(len * 0.42, -bodyH, -len * 0.1, -bodyH * 0.85);
+        ctx.quadraticCurveTo(-len * 0.42, -bodyH * 0.6, -len * 0.45, 0);
+        ctx.quadraticCurveTo(-len * 0.42, bodyH * 0.6, -len * 0.1, bodyH * 0.85);
+        ctx.quadraticCurveTo(len * 0.42, bodyH, len * 0.5, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Спинной плавник ---
+        ctx.beginPath();
+        ctx.moveTo(-len * 0.02, -bodyH * 0.7);
+        ctx.lineTo(-len * 0.12, -bodyH * 1.7);
+        ctx.lineTo(-len * 0.28, -bodyH * 0.75);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Грудной плавник ---
+        ctx.beginPath();
+        ctx.moveTo(len * 0.02, bodyH * 0.3);
+        ctx.quadraticCurveTo(-len * 0.05, bodyH * 1.1, -len * 0.2, bodyH * 0.9);
+        ctx.quadraticCurveTo(-len * 0.08, bodyH * 0.5, -len * 0.02, bodyH * 0.3);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Светлое брюхо ---
+        ctx.globalAlpha = sh.alpha * 0.7;
+        ctx.fillStyle = sh.belly;
+        ctx.beginPath();
+        ctx.moveTo(len * 0.42, bodyH * 0.35);
+        ctx.quadraticCurveTo(-len * 0.05, bodyH * 0.95, -len * 0.4, bodyH * 0.35);
+        ctx.quadraticCurveTo(-len * 0.3, bodyH * 0.15, len * 0.3, bodyH * 0.15);
+        ctx.closePath();
+        ctx.fill();
+
+        // --- Жабры (дуги) ---
+        ctx.globalAlpha = sh.alpha * 0.8;
+        ctx.strokeStyle = sh.tint;
+        ctx.lineWidth = Math.max(1, bodyH * 0.06);
+        for (let i = 0; i < 3; i++) {
+            const gx = len * 0.12 - i * len * 0.05;
+            ctx.beginPath();
+            ctx.moveTo(gx, -bodyH * 0.5);
+            ctx.quadraticCurveTo(gx + len * 0.02, 0, gx, bodyH * 0.5);
+            ctx.stroke();
+        }
+
+        // --- Глаз ---
+        ctx.globalAlpha = sh.alpha;
+        ctx.fillStyle = '#0a0a0a';
+        ctx.beginPath();
+        ctx.arc(len * 0.3, -bodyH * 0.28, Math.max(1.5, bodyH * 0.09), 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 }

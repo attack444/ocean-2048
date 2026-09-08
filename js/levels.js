@@ -17,18 +17,21 @@ export const LEVELS = [
     { id: 5, name: 'Осьминог',       rank: '🐙',   size: 5, target: 2048,
       tide: { interval: 9,  depth: 1, scoreReturn: 0.5, warning: 3 },
       moves: { tideStep: 1, maxWithoutMerge: 5, depth: 1 },
+      ebbtide: { interval: 12 },
       events: { interval: 11, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
     { id: 6, name: 'Акула',          rank: '🦈',   size: 5, target: 4096,
       tide: { interval: 8,  depth: 2, scoreReturn: 0.5, warning: 2 },
       moves: { tideStep: 1, maxWithoutMerge: 4, depth: 1 },
       shark: { appearMoves: 6, stepInterval: 3, targetThreshold: 32, protectChance: 0.2 },
       abilities: { spawnChance: 0.03 },
+      ebbtide: { interval: 10 },
       events: { interval: 10, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
     { id: 7, name: 'Хозяин Моря',    rank: '👑',   size: 6, target: 4096,
       tide: { interval: 7,  depth: 2, scoreReturn: 0.5, warning: 2 },
       moves: { tideStep: 2, maxWithoutMerge: 3, depth: 2 },
       shark: { appearMoves: 5, stepInterval: 2, targetThreshold: 32, protectChance: 0.15 },
       abilities: { spawnChance: 0.04 },
+      ebbtide: { interval: 9 },
       events: { interval: 9, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
 ];
 
@@ -55,6 +58,11 @@ export function abilitiesConfigForLevel(id) {
 /** Конфиг «Случайные события» для уровня (null — механика выключена). */
 export function eventsConfigForLevel(id) {
     return levelById(id).events || null;
+}
+
+/** Конфиг «Прилив и отлив» для уровня (null — механика выключена). */
+export function ebbtideConfigForLevel(id) {
+    return levelById(id).ebbtide || null;
 }
 
 /**
