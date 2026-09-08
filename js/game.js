@@ -20,6 +20,7 @@ export default class Game {
         this.onThreat      = config.onThreat      || null;
         this.onSharkEat    = config.onSharkEat    || null;
         this.onAbility     = config.onAbility     || null;
+        this.onEvent       = config.onEvent       || null;
         this.infinity      = !!config.infinity;
         // Лимит ходов (режим «Челлендж» ⏱️): 0 = без лимита,
         // иначе после moveLimit-го хода партия заканчивается (onGameOver).
@@ -36,6 +37,9 @@ export default class Game {
 
         // Плитки-способности ⚡ — конфиг механики «Глубины ядра» (null = выключено)
         this.abilities     = this._normalizeAbilities(config.abilities);
+
+        // Случайные события 🎲 — конфиг механики «Глубины ядра» (null = выключено)
+        this.events        = this._normalizeEvents(config.events);
 
         // Множитель очков от скина/темы (+% за косметику, «Ценность покупок»)
         this.appearanceMultiplier = Math.max(1, Number(config.appearanceMultiplier) || 1);
@@ -100,6 +104,11 @@ export default class Game {
         this.abilityUsed        = 0;    // сколько способностей активировано игроком
         this.abilityCleared     = 0;    // сколько плиток убрано способностями
 
+        // Случайные события 🎲: состояние механики
+        this.eventMovesUntilNext = 0;   // сколько ходов осталось до следующего события
+        this.eventsTriggered     = 0;   // сколько событий сработало
+        this.eventActive         = false; // вспышка события для UI
+
         // Рендер (абсолютное позиционирование плиток)
         this._tileEls      = new Map();
         this._pad          = 8;
@@ -161,6 +170,9 @@ export default class Game {
         this.abilitySpawned     = 0;
         this.abilityUsed        = 0;
         this.abilityCleared     = 0;
+        this.eventMovesUntilNext = this.events ? this.events.interval : 0;
+        this.eventsTriggered     = 0;
+        this.eventActive         = false;
 
         this._addNewTile();
         this._addNewTile();
@@ -205,6 +217,8 @@ export default class Game {
             abilitySpawned: this.abilitySpawned,
             abilityUsed: this.abilityUsed,
             abilityCleared: this.abilityCleared,
+            eventMovesUntilNext: this.eventMovesUntilNext,
+            eventsTriggered: this.eventsTriggered,
         };
 
         const scoreBefore = this.score;
@@ -249,6 +263,8 @@ export default class Game {
             if (!frozen) this._tickTide();
             // Акула-охотник 🦈: отсчёт ходов и шаг акулы (после прилива, до спавна)
             this._tickShark();
+            // Случайные события 🎲: отсчёт ходов и срабатывание (после акулы, до спавна)
+            this._tickEvents();
             this._addNewTile();
             this.render();
             this.onScoreUpdate(this.score);
@@ -304,9 +320,12 @@ export default class Game {
         if (typeof prev.abilitySpawned !== 'undefined') this.abilitySpawned = prev.abilitySpawned;
         if (typeof prev.abilityUsed !== 'undefined') this.abilityUsed = prev.abilityUsed;
         if (typeof prev.abilityCleared !== 'undefined') this.abilityCleared = prev.abilityCleared;
+        if (typeof prev.eventMovesUntilNext !== 'undefined') this.eventMovesUntilNext = prev.eventMovesUntilNext;
+        if (typeof prev.eventsTriggered !== 'undefined') this.eventsTriggered = prev.eventsTriggered;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
         this.sharkActive   = false;
+        this.eventActive   = false;
         this.won           = false;
         this.gameOver      = false;
         this.winCelebrated = false;
@@ -347,6 +366,8 @@ export default class Game {
             abilitySpawned: this.abilitySpawned,
             abilityUsed: this.abilityUsed,
             abilityCleared: this.abilityCleared,
+            eventMovesUntilNext: this.eventMovesUntilNext,
+            eventsTriggered: this.eventsTriggered,
         };
     }
 
@@ -388,9 +409,13 @@ export default class Game {
         if (typeof state.abilitySpawned === 'number') this.abilitySpawned = state.abilitySpawned;
         if (typeof state.abilityUsed === 'number') this.abilityUsed = state.abilityUsed;
         if (typeof state.abilityCleared === 'number') this.abilityCleared = state.abilityCleared;
+        this.eventMovesUntilNext = (this.events && typeof state.eventMovesUntilNext === 'number')
+            ? state.eventMovesUntilNext : (this.events ? this.events.interval : 0);
+        if (typeof state.eventsTriggered === 'number') this.eventsTriggered = state.eventsTriggered;
         this.tideActive    = false;
         this.movesPenaltyActive = false;
         this.sharkActive   = false;
+        this.eventActive   = false;
 
         this._updateGridCSS();
         this.render();
@@ -985,6 +1010,133 @@ export default class Game {
         };
     }
 
+    // ──────────────────────────────────────────────────────────
+    // Случайные события 🎲 (механика «Глубины ядра»)
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Нормализация конфига «Случайные события» (null — механика выключена).
+     * - interval: число ходов между событиями;
+     * - weights: объект {storm, jelly, bubble} — веса выпадения;
+     * - jellyCount: сколько плиток добавляет «Медузий дождь»;
+     * - jellyValue: значение добавляемых плиток;
+     * - bubbleMult: множитель «Пузыря».
+     */
+    _normalizeEvents(cfg) {
+        if (!cfg || !cfg.enabled) return null;
+        const num = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const w = (v, fallback) => Math.max(0, num(v, fallback));
+        return {
+            interval:   Math.max(3, Math.floor(num(cfg.interval, 12))),
+            weights: {
+                storm:  w(cfg.weights && cfg.weights.storm, 1),
+                jelly:  w(cfg.weights && cfg.weights.jelly, 1),
+                bubble: w(cfg.weights && cfg.weights.bubble, 1),
+            },
+            jellyCount: Math.max(1, Math.floor(num(cfg.jellyCount, 2))),
+            jellyValue: Math.max(2, Math.floor(num(cfg.jellyValue, 2))),
+            bubbleMult: Math.max(2, Math.floor(num(cfg.bubbleMult, 2))),
+        };
+    }
+
+    /**
+     * Отсчёт ходов до следующего случайного события. Вызывается после
+     * _tickShark() и до _addNewTile() — событие видит доску после прилива
+     * и акулы, но до спавна новой плитки. Не срабатывает, если игра уже
+     * окончена (gameOver).
+     */
+    _tickEvents() {
+        if (!this.events || this.gameOver) return;
+        if (this.eventMovesUntilNext > 0) this.eventMovesUntilNext--;
+        if (this.eventMovesUntilNext > 0) return;
+        // Отсчёт перезапускается в любом случае (даже если событие не смогло сработать)
+        this.eventMovesUntilNext = this.events.interval;
+        this._triggerRandomEvent();
+    }
+
+    /** Выбор и выполнение случайного события по весам (через инжектируемый RNG). */
+    _triggerRandomEvent() {
+        const w = this.events.weights;
+        const total = w.storm + w.jelly + w.bubble;
+        if (total <= 0) return;
+        let roll = this._rng() * total;
+        if (roll < w.storm)      return this._eventStorm();
+        roll -= w.storm;
+        if (roll < w.jelly)      return this._eventJelly();
+        return this._eventBubble();
+    }
+
+    /** 🌪️ Шторм: перемешивает все плитки на доске (как shuffle, без render/onSave). */
+    _eventStorm() {
+        const filled = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            if (this.tiles[i] !== null) filled.push(this.tiles[i]);
+        }
+        if (filled.length < 2) return; // нечего перемешивать — событие пропускается
+        // Фишер–Йетс (инжектируемый RNG — детерминирован при общем сиде)
+        for (let i = filled.length - 1; i > 0; i--) {
+            const j = Math.floor(this._rng() * (i + 1));
+            [filled[i], filled[j]] = [filled[j], filled[i]];
+        }
+        let k = 0;
+        for (let i = 0; i < this.tiles.length; i++) {
+            if (this.tiles[i] !== null) this.tiles[i] = filled[k++];
+        }
+        this.eventActive = true;
+        this.eventsTriggered++;
+        if (this.onEvent) this.onEvent({ kind: 'storm' });
+    }
+
+    /** 🪼 Медузий дождь: добавляет jellyCount плиток значения jellyValue на пустые клетки. */
+    _eventJelly() {
+        const count = this.events.jellyCount;
+        const value = this.events.jellyValue;
+        const empty = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            if (this.tiles[i] === null) empty.push(i);
+        }
+        if (empty.length === 0) return; // доска полна — событие пропускается
+        const added = Math.min(count, empty.length);
+        for (let n = 0; n < added; n++) {
+            const pick = Math.floor(this._rng() * empty.length);
+            const idx = empty.splice(pick, 1)[0];
+            this.tiles[idx] = { id: this._nextTileId++, value, justSpawned: true };
+        }
+        this.eventActive = true;
+        this.eventsTriggered++;
+        if (this.onEvent) this.onEvent({ kind: 'jelly', count: added, value });
+    }
+
+    /** 🫧 Пузырь: удваивает значение случайной НЕПУСТОЙ плитки. */
+    _eventBubble() {
+        const filled = [];
+        for (let i = 0; i < this.tiles.length; i++) {
+            if (this.tiles[i] !== null) filled.push(i);
+        }
+        if (filled.length === 0) return; // пустых плиток нет — событие пропускается
+        const idx = filled[Math.floor(this._rng() * filled.length)];
+        const t = this.tiles[idx];
+        const newValue = t.value * this.events.bubbleMult;
+        t.value = newValue;
+        this.eventActive = true;
+        this.eventsTriggered++;
+        if (this.onEvent) this.onEvent({ kind: 'bubble', idx, value: newValue });
+    }
+
+    /** Состояние механики «Случайные события» для UI (null — выключено). */
+    getEvents() {
+        if (!this.events) return null;
+        return {
+            enabled: true,
+            interval: this.events.interval,
+            movesUntilNext: this.eventMovesUntilNext,
+            triggered: this.eventsTriggered,
+        };
+    }
+
     /**
      * Подсказка: оценивает все 4 направления и возвращает лучший ход.
      * @returns {{direction:string, fromIndices:number[]} | null}
@@ -1033,6 +1185,96 @@ export default class Game {
         }
 
         return { direction: bestDir, fromIndices };
+    }
+
+    /**
+     * Дельфин-навигатор (ИИ-подсказка): как hint(), но дополнительно оценивает
+     * «запас ходов» — насколько доска близка к тупику. Позволяет UI предупредить
+     * игрока «остался 1 ход до тупика», когда поле почти заполнено.
+     *
+     * Уровень опасности считается по числу пустых клеток (главный предвестник
+     * тупика) и числу реально доступных направлений:
+     *   - critical: пустых клеток 0–1 (или доступно лишь 1 направление);
+     *   - warning:  пустых клеток 2 (или доступно 2 направления);
+     *   - clear:    иначе.
+     *
+     * @returns {{
+     *   direction: string,
+     *   fromIndices: number[],
+     *   dangerLevel: 'clear'|'warning'|'critical',
+     *   emptyCells: number,
+     *   validMovesNow: number
+     * } | null}
+     */
+    navigate() {
+        if (this.gameOver || this._busy) return null;
+
+        const dirs          = ['up', 'down', 'left', 'right'];
+        const original      = this.tiles;
+        const originalScore = this.score;
+        const snapshot      = () => original.map(t => (t ? { id: t.id, value: t.value, ability: t.ability } : null));
+
+        let bestDir  = null;
+        let bestEval = -Infinity;
+
+        for (const dir of dirs) {
+            this.tiles = snapshot();
+            this.score = 0;
+            const { moved } = this._move(dir);
+            if (!moved) {
+                this.tiles = original;
+                this.score = originalScore;
+                continue;
+            }
+            const ev = this._evalBoard(this.tiles);
+            this.tiles = original;
+            this.score = originalScore;
+            if (ev > bestEval) { bestEval = ev; bestDir = dir; }
+        }
+
+        if (!bestDir) return null;
+
+        // Индексы плиток, которые сдвинутся/сольются при лучшем ходе
+        const after = snapshot();
+        this.tiles = after;
+        this.score = 0;
+        this._move(bestDir);
+        this.tiles = original;
+        this.score = originalScore;
+
+        const fromIndices = [];
+        for (let i = 0; i < original.length; i++) {
+            if (original[i] && (!after[i] || after[i].value !== original[i].value)) {
+                fromIndices.push(i);
+            }
+        }
+
+        // «Запас ходов»: пустые клетки + доступные направления на текущей доске.
+        const emptyCells = original.filter(t => t === null).length;
+        const validMovesNow = this._countValidMoves(original);
+
+        let dangerLevel = 'clear';
+        if (emptyCells <= 1 || validMovesNow <= 1) dangerLevel = 'critical';
+        else if (emptyCells === 2 || validMovesNow === 2) dangerLevel = 'warning';
+
+        return { direction: bestDir, fromIndices, dangerLevel, emptyCells, validMovesNow };
+    }
+
+    /**
+     * Сколько направлений дают реальный сдвиг на доске tiles (без мутации this).
+     * Учитывает плитки-способности ⚡ (не сливаются) и «спасательный круг».
+     */
+    _countValidMoves(tiles) {
+        const dirs = ['up', 'down', 'left', 'right'];
+        const saved = this.tiles;
+        let count = 0;
+        for (const dir of dirs) {
+            this.tiles = tiles.map(t => (t ? { id: t.id, value: t.value, ability: t.ability } : null));
+            const { moved } = this._move(dir);
+            if (moved) count++;
+        }
+        this.tiles = saved;
+        return count;
     }
 
     /** Эвристическая оценка доски: пустые клетки, слияния, монотонность. */

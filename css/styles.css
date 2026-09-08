@@ -1782,6 +1782,83 @@ body.theme-light .achievement .ach-desc { color: #1a5a76; }
 }
 
 /* ==================================================================
+   ДЕЛЬФИН-НАВИГАТОР 🐬 (Фаза 7): стрелка оптимального хода
+   ================================================================== */
+.nav-arrow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 9;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s ease;
+    transform: translate(-50%, -50%);
+}
+/* Направления: стрелка рисуется вверх, поворачиваем по классу */
+.nav-arrow.dir-down  { transform: translate(-50%, -50%) rotate(180deg); }
+.nav-arrow.dir-left  { transform: translate(-50%, -50%) rotate(-90deg); }
+.nav-arrow.dir-right { transform: translate(-50%, -50%) rotate(90deg); }
+.nav-arrow.dir-up    { transform: translate(-50%, -50%) rotate(0deg); }
+.nav-arrow::before {
+    content: '';
+    position: absolute;
+    left: -34px;
+    top: -34px;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(74,247,255,.35) 0%, rgba(74,247,255,0) 70%);
+}
+.nav-arrow::after {
+    content: '';
+    position: absolute;
+    left: -16px;
+    top: -16px;
+    width: 0;
+    height: 0;
+    border-left: 16px solid transparent;
+    border-right: 16px solid transparent;
+    border-bottom: 30px solid #4af7ff;
+    filter: drop-shadow(0 0 10px rgba(74,247,255,.9));
+}
+.nav-arrow.show { opacity: 1; }
+.nav-arrow.show::after { animation: navArrowPulse .7s ease-in-out infinite; }
+@keyframes navArrowPulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.18); }
+}
+
+/* Предупреждение навигатора над доской (по образцу combo-pop) */
+.nav-warning {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 8;
+    transform: translate(-50%, -50%);
+    font-size: 1.05rem;
+    font-weight: 900;
+    letter-spacing: .5px;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    text-shadow: 0 2px 8px rgba(0,0,0,.7);
+    pointer-events: none;
+    opacity: 0;
+}
+.nav-warning.warn { color: #ffe08a; text-shadow: 0 2px 8px rgba(0,0,0,.7), 0 0 16px rgba(255,200,60,.8); }
+.nav-warning.crit { color: #ff6b6b; text-shadow: 0 2px 8px rgba(0,0,0,.7), 0 0 18px rgba(255,60,60,.9); }
+.nav-warning.pop { animation: navWarningRise 1.4s ease-out forwards; }
+@keyframes navWarningRise {
+    0%   { opacity: 0; transform: translate(-50%, -20%) scale(.7); }
+    15%  { opacity: 1; transform: translate(-50%, -45%) scale(1.1); }
+    25%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    80%  { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -150%) scale(1); }
+}
+
+/* ==================================================================
    ЗАГРУЗОЧНЫЙ ЭКРАН (VK / Yandex LoadingAPI)
    ================================================================== */
 .loading-screen {

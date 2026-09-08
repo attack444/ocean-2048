@@ -12,20 +12,24 @@ export const LEVELS = [
     { id: 3, name: 'Медуза',         rank: '🪼',   size: 4, target: 1024 },
     { id: 4, name: 'Черепаха',       rank: '🐢',   size: 4, target: 2048,
       tide: { interval: 10, depth: 1, scoreReturn: 0.5, warning: 3 },
-      moves: { tideStep: 1, maxWithoutMerge: 6, depth: 1 } },
+      moves: { tideStep: 1, maxWithoutMerge: 6, depth: 1 },
+      events: { interval: 12, jellyCount: 1, jellyValue: 2, bubbleMult: 2 } },
     { id: 5, name: 'Осьминог',       rank: '🐙',   size: 5, target: 2048,
       tide: { interval: 9,  depth: 1, scoreReturn: 0.5, warning: 3 },
-      moves: { tideStep: 1, maxWithoutMerge: 5, depth: 1 } },
+      moves: { tideStep: 1, maxWithoutMerge: 5, depth: 1 },
+      events: { interval: 11, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
     { id: 6, name: 'Акула',          rank: '🦈',   size: 5, target: 4096,
       tide: { interval: 8,  depth: 2, scoreReturn: 0.5, warning: 2 },
       moves: { tideStep: 1, maxWithoutMerge: 4, depth: 1 },
       shark: { appearMoves: 6, stepInterval: 3, targetThreshold: 32, protectChance: 0.2 },
-      abilities: { spawnChance: 0.03 } },
+      abilities: { spawnChance: 0.03 },
+      events: { interval: 10, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
     { id: 7, name: 'Хозяин Моря',    rank: '👑',   size: 6, target: 4096,
       tide: { interval: 7,  depth: 2, scoreReturn: 0.5, warning: 2 },
       moves: { tideStep: 2, maxWithoutMerge: 3, depth: 2 },
       shark: { appearMoves: 5, stepInterval: 2, targetThreshold: 32, protectChance: 0.15 },
-      abilities: { spawnChance: 0.04 } },
+      abilities: { spawnChance: 0.04 },
+      events: { interval: 9, jellyCount: 2, jellyValue: 2, bubbleMult: 2 } },
 ];
 
 /** Конфиг прилива для уровня (null — прилив выключен на этом уровне). */
@@ -46,6 +50,11 @@ export function sharkConfigForLevel(id) {
 /** Конфиг «Плитки-способности» для уровня (null — механика выключена). */
 export function abilitiesConfigForLevel(id) {
     return levelById(id).abilities || null;
+}
+
+/** Конфиг «Случайные события» для уровня (null — механика выключена). */
+export function eventsConfigForLevel(id) {
+    return levelById(id).events || null;
 }
 
 /**

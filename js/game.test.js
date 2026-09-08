@@ -1711,4 +1711,306 @@ describe('Infinity mode (классика: после цели игра прод
         assert.equal(g.gameOver, true);
     });
 });
+
+describe('Game navigate (дельфин-навигатор 🐬)', () => {
+    it('returns a valid direction on an open board and does not mutate tiles', () => {
+        const g = makeGame();
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 2 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        const before = g.tiles.map(t => (t ? { ...t } : null));
+        const nav = g.navigate();
+        assert.ok(nav, 'navigate should find a move');
+        assert.ok(['up', 'down', 'left', 'right'].includes(nav.direction));
+        assert.ok(Array.isArray(nav.fromIndices) && nav.fromIndices.length > 0);
+        assert.equal(nav.dangerLevel, 'clear');
+        assert.equal(nav.emptyCells, 14);
+        assert.ok(nav.validMovesNow >= 3);
+        // Доска не должна мутироваться вызовом navigate
+        assert.deepEqual(g.tiles.map(t => (t ? { ...t } : null)), before);
+    });
+
+    it('returns null on a full deadlock board (no moves)', () => {
+        const g = makeGame();
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 2 }, { id: 4, value: 4 },
+            { id: 5, value: 4 }, { id: 6, value: 2 }, { id: 7, value: 4 }, { id: 8, value: 2 },
+            { id: 9, value: 2 }, { id: 10, value: 4 }, { id: 11, value: 2 }, { id: 12, value: 4 },
+            { id: 13, value: 4 }, { id: 14, value: 2 }, { id: 15, value: 4 }, { id: 16, value: 2 },
+        ];
+        assert.equal(g.navigate(), null);
+    });
+
+    it('flags critical when the board is completely full (0 empty cells)', () => {
+        const g = makeGame();
+        // Полная доска с единственным слиянием 64+64 в нижней строке — не тупик,
+        // но пустых клеток 0 → критично («остался 1 ход до тупика»).
+        g.tiles = [
+            { id: 1, value: 2 },   { id: 2, value: 4 },   { id: 3, value: 8 },   { id: 4, value: 16 },
+            { id: 5, value: 4 },   { id: 6, value: 8 },   { id: 7, value: 16 },  { id: 8, value: 32 },
+            { id: 9, value: 8 },   { id: 10, value: 16 }, { id: 11, value: 32 }, { id: 12, value: 128 },
+            { id: 13, value: 16 }, { id: 14, value: 32 }, { id: 15, value: 64 }, { id: 16, value: 64 },
+        ];
+        const nav = g.navigate();
+        assert.ok(nav, 'full board with a merge still has a move');
+        assert.equal(nav.emptyCells, 0);
+        assert.equal(nav.dangerLevel, 'critical');
+    });
+
+    it('flags warning when only 2 empty cells remain', () => {
+        const g = makeGame();
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 8 }, { id: 4, value: 16 },
+            { id: 5, value: 4 }, { id: 6, value: 8 }, { id: 7, value: 16 }, { id: 8, value: 32 },
+            { id: 9, value: 8 }, { id: 10, value: 16 }, { id: 11, value: 32 }, { id: 12, value: 64 },
+            { id: 13, value: 16 }, { id: 14, value: 32 }, null, null,
+        ];
+        const nav = g.navigate();
+        assert.ok(nav, 'board with 2 empty cells still has a move');
+        assert.equal(nav.emptyCells, 2);
+        assert.equal(nav.dangerLevel, 'warning');
+    });
+
+    it('_countValidMoves counts directions that actually move', () => {
+        // Полный тупик → 0 доступных направлений
+        const dead = makeGame();
+        dead.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 2 }, { id: 4, value: 4 },
+            { id: 5, value: 4 }, { id: 6, value: 2 }, { id: 7, value: 4 }, { id: 8, value: 2 },
+            { id: 9, value: 2 }, { id: 10, value: 4 }, { id: 11, value: 2 }, { id: 12, value: 4 },
+            { id: 13, value: 4 }, { id: 14, value: 2 }, { id: 15, value: 4 }, { id: 16, value: 2 },
+        ];
+        assert.equal(dead._countValidMoves(dead.tiles), 0);
+
+        // Пустая доска с одной плиткой в углу → доступны 2 направления (left/up)
+        const corner = makeGame();
+        corner.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        assert.equal(corner._countValidMoves(corner.tiles), 2);
+    });
+});
+
+describe('Game random events (случайные события 🎲)', () => {
+    function makeEventsGame(opts = {}) {
+        const board = stubBoard();
+        const addTile = Game.prototype._addNewTile;
+        const render = Game.prototype.render;
+        const animate = Game.prototype._animateMove;
+        Game.prototype._addNewTile = function () {};
+        Game.prototype.render = function () {};
+        Game.prototype._animateMove = function (moves, cb) { cb(); };
+        const game = new Game({
+            boardElement: board,
+            size: opts.size || 4,
+            target: opts.target || 2048,
+            tide: null,
+            moves: null,
+            shark: null,
+            abilities: null,
+            events: Object.assign(
+                {
+                    enabled: true,
+                    interval: 12,
+                    weights: { storm: 1, jelly: 1, bubble: 1 },
+                    jellyCount: 2,
+                    jellyValue: 2,
+                    bubbleMult: 2,
+                },
+                opts.events
+            ),
+            onEvent: opts.onEvent || null,
+            random: opts.random,
+        });
+        Game.prototype._addNewTile = addTile;
+        Game.prototype.render = render;
+        Game.prototype._animateMove = animate;
+        game.tiles = new Array(game.size * game.size).fill(null);
+        game.score = 0;
+        return game;
+    }
+
+    // Готовим игру к синхронному handleMove: без спавна плиток, анимации и рендера.
+    function readyForMove(g) {
+        g._addNewTile = () => {};
+        g._animateMove = (moves, cb) => cb();
+        g.render = () => {};
+    }
+
+    it('is disabled when no events config is passed', () => {
+        const g = makeGame();
+        assert.equal(g.getEvents(), null);
+        g.eventMovesUntilNext = 5;
+        g._tickEvents();
+        assert.equal(g.eventMovesUntilNext, 5); // отсчёт не идёт
+        assert.equal(g.eventsTriggered, 0);
+    });
+
+    it('normalizes the config and reports state for the UI', () => {
+        const g = makeEventsGame({ events: { interval: 1, jellyCount: 0, jellyValue: 1, bubbleMult: 1 } });
+        const s = g.getEvents();
+        assert.equal(s.enabled, true);
+        assert.equal(s.interval, 3);       // минимум 3
+        assert.equal(s.movesUntilNext, 3); // init ставит interval
+        assert.equal(s.triggered, 0);
+        assert.deepEqual(g.events.weights, { storm: 1, jelly: 1, bubble: 1 });
+        assert.equal(g.events.jellyCount, 1); // минимум 1
+        assert.equal(g.events.jellyValue, 2); // минимум 2
+        assert.equal(g.events.bubbleMult, 2); // минимум 2
+    });
+
+    it('counts down each move and triggers an event after the interval', () => {
+        const g = makeEventsGame({ events: { interval: 3 } });
+        readyForMove(g);
+        // Две плитки в разных рядах — каждый ход влево/вправо реально двигает их,
+        // поэтому отсчёт событий уменьшается на каждом ходу.
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        // Первый ход: 3 -> 2 (события нет)
+        g.handleMove('right');
+        assert.equal(g.eventMovesUntilNext, 2);
+        assert.equal(g.eventsTriggered, 0);
+        // Второй ход: 2 -> 1
+        g.handleMove('left');
+        assert.equal(g.eventMovesUntilNext, 1);
+        assert.equal(g.eventsTriggered, 0);
+        // Третий ход: 1 -> 0 -> событие, отсчёт сбрасывается на interval
+        g._rng = () => 0; // storm
+        g.handleMove('right');
+        assert.equal(g.eventMovesUntilNext, 3);
+        assert.equal(g.eventsTriggered, 1);
+    });
+
+    it('storm shuffles the tiles but preserves the multiset', () => {
+        const g = makeEventsGame();
+        g._rng = () => 0; // storm (roll < 1 при total 3)
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, { id: 3, value: 8 }, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        const before = g.tiles.filter(Boolean).map(t => t.value).sort((a, b) => a - b);
+        g.eventMovesUntilNext = 1; // чтобы _tickEvents сработал сразу
+        g._tickEvents();
+        assert.equal(g.eventsTriggered, 1);
+        assert.equal(g.eventActive, true);
+        const after = g.tiles.filter(Boolean).map(t => t.value).sort((a, b) => a - b);
+        assert.deepEqual(after, before); // мультимножество значений сохранено
+        assert.equal(g.tiles.filter(Boolean).length, 3);
+    });
+
+    it('jelly adds N tiles of the configured value on empty cells', () => {
+        const g = makeEventsGame({ events: { jellyCount: 2, jellyValue: 4 } });
+        g._rng = () => 0.5; // jelly (roll в [1,2) при total 3)
+        g.tiles = [
+            { id: 1, value: 2 }, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.eventMovesUntilNext = 1; // чтобы _tickEvents сработал сразу
+        g._tickEvents();
+        assert.equal(g.eventsTriggered, 1);
+        const added = g.tiles.filter(t => t && t.value === 4);
+        assert.equal(added.length, 2);
+        assert.equal(g.tiles.filter(Boolean).length, 3);
+    });
+
+    it('jelly adds fewer tiles when the board is nearly full', () => {
+        const g = makeEventsGame({ events: { jellyCount: 5, jellyValue: 4 } });
+        g._rng = () => 0.5; // jelly
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 2 }, { id: 3, value: 2 }, { id: 4, value: 2 },
+            { id: 5, value: 2 }, { id: 6, value: 2 }, { id: 7, value: 2 }, { id: 8, value: 2 },
+            { id: 9, value: 2 }, { id: 10, value: 2 }, { id: 11, value: 2 }, { id: 12, value: 2 },
+            { id: 13, value: 2 }, { id: 14, value: 2 }, { id: 15, value: 2 }, null,
+        ];
+        g.eventMovesUntilNext = 1; // чтобы _tickEvents сработал сразу
+        g._tickEvents();
+        assert.equal(g.eventsTriggered, 1);
+        const added = g.tiles.filter(t => t && t.value === 4);
+        assert.equal(added.length, 1); // только одна пустая клетка
+    });
+
+    it('bubble doubles the value of a random filled tile', () => {
+        const g = makeEventsGame({ events: { bubbleMult: 2 } });
+        g._rng = () => 0.9; // bubble (roll >= 2 при total 3)
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.eventMovesUntilNext = 1; // чтобы _tickEvents сработал сразу
+        g._tickEvents();
+        assert.equal(g.eventsTriggered, 1);
+        // 0.9 * 2 = 1.8, floor(1.8 * 2) = 3 → индекс 3? нет: filled=[0,1], floor(0.9*2)=1 → idx 1
+        assert.equal(g.tiles[1].value, 8);
+        assert.equal(g.tiles[0].value, 2);
+    });
+
+    it('undo restores eventMovesUntilNext and eventsTriggered', () => {
+        const g = makeEventsGame({ events: { interval: 3 } });
+        readyForMove(g);
+        g.tiles = [
+            { id: 1, value: 2 }, { id: 2, value: 4 }, null, null,
+            null, null, null, null,
+            null, null, null, null,
+            null, null, null, null,
+        ];
+        g.handleMove('right'); // 3 -> 2
+        assert.equal(g.eventMovesUntilNext, 2);
+        g.undo();
+        assert.equal(g.eventMovesUntilNext, 3); // восстановлено из prev
+        assert.equal(g.eventsTriggered, 0);
+        assert.equal(g.eventActive, false);
+    });
+
+    it('init resets the event counters', () => {
+        const g = makeEventsGame({ events: { interval: 5 } });
+        g.eventsTriggered = 7;
+        g.eventMovesUntilNext = 1;
+        g.eventActive = true;
+        g.render = () => {};
+        g.init();
+        assert.equal(g.eventsTriggered, 0);
+        assert.equal(g.eventMovesUntilNext, 5);
+        assert.equal(g.eventActive, false);
+    });
+
+    it('getState/loadState round-trips the event counters', () => {
+        const g = makeEventsGame({ events: { interval: 4 } });
+        g.eventsTriggered = 3;
+        g.eventMovesUntilNext = 2;
+        const state = g.getState();
+        assert.equal(state.eventMovesUntilNext, 2);
+        assert.equal(state.eventsTriggered, 3);
+
+        const g2 = makeEventsGame({ events: { interval: 4 } });
+        g2.render = () => {};
+        g2.loadState(state);
+        assert.equal(g2.eventMovesUntilNext, 2);
+        assert.equal(g2.eventsTriggered, 3);
+        assert.equal(g2.eventActive, false);
+    });
+
+    it('does not trigger an event when events are disabled (regression)', () => {
+        const g = makeGame();
+        g.eventMovesUntilNext = 0;
+        g._tickEvents();
+        assert.equal(g.eventsTriggered, 0);
+        assert.equal(g.eventActive, false);
+    });
+});
 });

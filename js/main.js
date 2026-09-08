@@ -10,7 +10,7 @@ import { applyLevelWin, applyLevelGameOver, isLevelUnlocked } from './progress.j
 import { resolveConflict, mergeBoardSaves } from './cloud-sync.js';
 import { canRevive } from './rewards.js';
 import { comboReward, STREAK_THRESHOLD } from './combo.js';
-import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel } from './levels.js';
+import { LEVELS, levelById, isLastLevel, tideConfigForLevel, movesConfigForLevel, sharkConfigForLevel, abilitiesConfigForLevel, eventsConfigForLevel } from './levels.js';
 import { ACHIEVEMENTS, evaluateAchievements } from './achievements.js';
 import { puzzleStartBoard, ensureDailyPuzzle, recordPuzzleResult, puzzleInfo, makeRng, seedFromDate } from './daily-puzzle.js';
 import {
@@ -1959,6 +1959,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         movesConfigForLevel(state.currentLevel),
             shark:         sharkConfigForLevel(state.currentLevel),
             abilities:     abilitiesConfigForLevel(state.currentLevel),
+            events:        eventsConfigForLevel(state.currentLevel),
             // Ценность покупок: скин+тема дают +% очков, перк «Дух четвёрки» повышает шанс 4,
             // перк «Спокойные воды» отодвигает прилив на 1 ход.
             appearanceMultiplier: appearanceScoreMultiplier(state),
@@ -2023,6 +2024,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } else if (ev.kind === 'crab') {
                     showToast(`🦀 Слияние в ${ev.value}!`, '🦀');
                 }
+            },
+            onEvent: (ev) => {
+                // Случайное событие 🎲 сработало: вспышка + уведомление
+                gamePulse('event');
+                if (ev.kind === 'storm') showToast('🌪️ Шторм перемешал плитки!', '🌪️');
+                else if (ev.kind === 'jelly') showToast(`🪼 Медузий дождь: +${ev.count} плиток`, '🪼');
+                else if (ev.kind === 'bubble') showToast(`🫧 Пузырь: плитка ×${ev.value}!`, '🫧');
             },
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
@@ -2159,6 +2167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null,      // без «ходов как ресурс» 🧮
             shark:         null,      // без акулы 🦈
             abilities:     null,      // без плиток-способностей ⚡
+            events:        null,      // без случайных событий 🎲
             appearanceMultiplier: 1,  // без бонуса косметики за очки
             fourChance:    0.1,
             onScoreUpdate: (score) => {
@@ -2655,6 +2664,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null,
             shark:         null, // и без акулы
             abilities:     null, // и без плиток-способностей
+            events:        null, // и без случайных событий 🎲
             appearanceMultiplier: 1,
             fourChance:    0.1,
             // Общий сид: все последующие плитки выпадают детерминированно.
@@ -2676,6 +2686,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: null,
             onSharkEat: null,
             onAbility: null,
+            onEvent: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 gamePulse('merge');
@@ -2817,6 +2828,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null, // и без «водоворота» (честное соревнование)
             shark:         null, // без акулы
             abilities:     null, // и без плиток-способностей
+            events:        null, // и без случайных событий 🎲
             appearanceMultiplier: 1, // бонусы скина/темы НЕ влияют на рейтинг (честно)
             fourChance:    0.1,
             moveLimit:     TOURNAMENT_MOVES, // 50 ходов — фиксированная партия
@@ -2837,6 +2849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: null,
             onSharkEat: null,
             onAbility: null,
+            onEvent: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 gamePulse('merge');
@@ -3001,6 +3014,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null, // и без «водоворота» (честное соревнование)
             shark:         null, // без акулы
             abilities:     null, // и без плиток-способностей
+            events:        null, // и без случайных событий 🎲
             appearanceMultiplier: 1, // бонусы скина/темы НЕ влияют на результат (честно)
             fourChance:    0.1,
             moveLimit:     DUEL_MOVES, // 50 ходов — фиксированная партия
@@ -3021,6 +3035,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: null,
             onSharkEat: null,
             onAbility: null,
+            onEvent: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 gamePulse('merge');
@@ -3198,6 +3213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null,
             shark:         null, // и без акулы
             abilities:     null, // и без плиток-способностей
+            events:        null, // и без случайных событий 🎲
             moveLimit:     challenge.movesLimit, // ⏱️ «N ходов на цель»
             appearanceMultiplier: 1,
             fourChance:    0.1,
@@ -3219,6 +3235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: null,
             onSharkEat: null,
             onAbility: null,
+            onEvent: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 gamePulse('merge');
@@ -3359,6 +3376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             moves:         null,
             shark:         null, // и без акулы
             abilities:     null, // и без плиток-способностей
+            events:        null, // и без случайных событий 🎲
             moveLimit:     info.movesLimit, // 📅 «N ходов на цель»
             appearanceMultiplier: 1,
             fourChance:    0.1,
@@ -3380,6 +3398,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onThreat: null,
             onSharkEat: null,
             onAbility: null,
+            onEvent: null,
             onMerge: (n) => {
                 if (state.sound !== false) playMerge();
                 gamePulse('merge');
@@ -3662,7 +3681,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateSettingsUI();
     });
 
-    // Подсказка
+    // ── Дельфин-навигатор 🐬 (Фаза 7): стрелка оптимального хода + предупреждение ──
+    const navArrow = $('nav-arrow');
+
+    // Показывает стрелку направления оптимального хода поверх доски.
+    function showNavArrow(direction) {
+        if (!navArrow) return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        navArrow.classList.remove('dir-up', 'dir-down', 'dir-left', 'dir-right', 'show');
+        void navArrow.offsetWidth;
+        navArrow.classList.add('dir-' + direction, 'show');
+        clearTimeout(showNavArrow._t);
+        showNavArrow._t = setTimeout(() => navArrow.classList.remove('show'), 1400);
+    }
+
+    // Всплывающее предупреждение навигатора над доской (по образцу combo-pop).
+    function showNavWarning(text, type) {
+        if (!boardEl || !boardEl.isConnected) return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        let pop = boardEl.querySelector(':scope > .nav-warning');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.className = 'nav-warning';
+            boardEl.appendChild(pop);
+        }
+        pop.textContent = text;
+        pop.classList.remove('warn', 'crit', 'pop');
+        void pop.offsetWidth;
+        if (type === 'critical') pop.classList.add('crit');
+        else if (type === 'warning') pop.classList.add('warn');
+        pop.classList.add('pop');
+    }
+
+    // Подсказка / Дельфин-навигатор
     hintBtn.addEventListener('click', async () => {
         if (!game || game.paused) return;
         // На площадках после 3 бесплатных подсказок — реклама за награду
@@ -3671,7 +3722,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const ok = await runWithAdPause(() => sdk.showRewarded());
             if (!ok) { showToast('Реклама не показана — попробуй ещё', '⚠️'); return; }
         }
-        const h = game.hint();
+        const h = game.navigate();
         if (!h) return;
 
         state.hintsUsed = (state.hintsUsed || 0) + 1;
@@ -3688,6 +3739,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => {
             boardEl.querySelectorAll('.tile.hint-flash').forEach(el => el.classList.remove('hint-flash'));
         }, 1100);
+
+        // Дельфин-навигатор: стрелка оптимального хода + предупреждение о тупике
+        showNavArrow(h.direction);
+        if (h.dangerLevel === 'critical') {
+            showNavWarning('⚠️ Остался 1 ход до тупика!', 'critical');
+        } else if (h.dangerLevel === 'warning') {
+            showNavWarning('Осторожно: ходов осталось мало', 'warning');
+        }
 
         checkAchievements();
         checkDaily();
